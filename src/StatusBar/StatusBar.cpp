@@ -22,7 +22,7 @@ void ArmSimPro::StatusBar::SetStatusBar(const char* text)
     ImGui::SetNextWindowPos(pos);
     ImGui::SetNextWindowViewport(viewport->ID);
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5.0f, 5.0f));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, _bg_col.GetCol());
     ImGui::Begin(_IDname, NULL, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoFocusOnAppearing);
