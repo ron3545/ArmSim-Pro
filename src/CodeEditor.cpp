@@ -1,4 +1,4 @@
-#pragma warning ( disable : 4244 )
+#define _CRT_SECURE_NO_WARNINGS
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui/imgui.h"
@@ -6,26 +6,58 @@
 #include "imgui/imgui_stdlib.h"
 #include "imgui/imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
+
 #include <d3d11.h>
 #include <tchar.h>
 #include <dwmapi.h>
+#include <filesystem>
+#include <cstring>
+#include <map>
+#include <string_view>
+
+#include <mutex>
+#include <thread>
+#include <numeric>
+#include <future>
+
+#include <fstream>
+#include <streambuf>
+#define DIRECTINPUT_VERSION 0x0800
+#include <dinput.h>
+#include <tchar.h>
 
 #include "MenuBar/File.h"
 #include "MenuBar/Edit.h"
 #include "ToolBar/ToolBar.h"
 #include "ImageHandler/ImageHandler.h"
 #include "StatusBar/StatusBar.h"
+#include "Editor/CmdPanel.h"
+#include "Editor/TextEditor.h"
+
+using namespace std;
 
 constexpr wchar_t* SOFTWARE_NAME = L"ArmSim Pro";
 const char* LOGO = "";
- HWND hwnd = NULL;
-//======================================MENU ITEM==============================================
-ImGui::ToolBar* vertical_tool_bar   = nullptr;
-ImGui::ToolBar* horizontal_tool_bar = nullptr;
+HWND hwnd = NULL;
+//=======================================================================================================================================
+static const char* Consolas_Font        = "../../../Utils/Fonts/Consolas.ttf";
+static const char* DroidSansMono_Font   = "../../../Utils/Fonts/DroidSansMono.ttf";
+static const char* Menlo_Regular_Font   = "../../../Utils/Fonts/Menlo-Regular.ttf";
+static const char* MONACO_Font          = "../../../Utils/Fonts/MONACO.TTF";
 
-ImGui::StatusBar* status_bar = nullptr;
-//=============================================================================================
-ID3D11Device*                   g_pd3dDevice = nullptr;
+static ImFont* DefaultFont;     
+static ImFont* CodeEditorFont;
+static ImFont* FileTreeFont;
+static ImFont* StatusBarFont;       
+
+//======================================CLASS DECLARATION================================================================================
+static ArmSimPro::ToolBar* vertical_tool_bar   = nullptr;
+static ArmSimPro::ToolBar* horizontal_tool_bar = nullptr;
+
+static ArmSimPro::StatusBar* status_bar = nullptr;
+static ArmSimPro::CmdPanel* cmd_panel = nullptr;
+//========================================================================================================================================
+       ID3D11Device*            g_pd3dDevice = nullptr; //should be non-static. Other translation units will be using this
 static ID3D11DeviceContext*     g_pd3dDeviceContext = nullptr;
 static IDXGISwapChain*          g_pSwapChain = nullptr;
 static UINT                     g_ResizeWidth = 0, g_ResizeHeight = 0;
@@ -35,6 +67,24 @@ bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
+//==================================================TREE VIEW OF DIRECTORY===================================================================
+struct DirectoryNode
+{
+	std::string FullPath;
+	std::string FileName;
+	std::vector<DirectoryNode> Children;
+	bool IsDirectory;
+    bool Selected;
+};
+
+static DirectoryNode project_root_node;
+
+static void RecursivelyAddDirectoryNodes(DirectoryNode& parentNode, std::filesystem::directory_iterator directoryIterator);
+static DirectoryNode CreateDirectryNodeTreeFromPath(const std::filesystem::path& rootPath);
+static void ImplementDirectoryNode();
+
+//============================================TOOLBAR FUNCTIONS==========================================================================
+static void SearchOnCodeEditor();
 
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -47,8 +97,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     hwnd = ::CreateWindowW(wc.lpszClassName, 
                     SOFTWARE_NAME, 
                     WS_OVERLAPPEDWINDOW, 
-                    100, 
-                    100, 
+                    0, 
+                    0, 
                     1280, 
                     800, 
                     nullptr, 
@@ -81,7 +131,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
-    io.IniFilename = NULL;  //prevents from saving the last states and position of each widgets
    
     io.DisplaySize = ImVec2(1280, 720) / io.DisplayFramebufferScale;
     
@@ -101,7 +150,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
-//======================================Load Icons/Images==========================================================================================================
+//======================================Load Icons/Images/Fonts==========================================================================================================
     static ImageData Compile_image;
     static ImageData Verify_image;
  
@@ -129,29 +178,131 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/ON/Search.png", &Search_image.ON_textureID, &Search_image.width, &Search_image.height));
     IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/OFF/Search.png", &Search_image.OFF_textureID));
 
-    IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/ON/Settings.png", &Settings_image.ON_textureID, &Settings_image.width, &Settings_image.height));
-    IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/OFF/Settings.png", &Settings_image.OFF_textureID));
-//================================================================================================================================================================
+    //IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/ON/Settings.png", &Settings_image.ON_textureID, &Settings_image.width, &Settings_image.height));
+    //IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/OFF/Settings.png", &Settings_image.OFF_textureID));
 
+    DefaultFont         = io.Fonts->AddFontFromFileTTF(Consolas_Font     , 14); //default
+    CodeEditorFont      = io.Fonts->AddFontFromFileTTF(DroidSansMono_Font, 24);
+    FileTreeFont        = io.Fonts->AddFontFromFileTTF(Menlo_Regular_Font, 18);
+    StatusBarFont       = io.Fonts->AddFontFromFileTTF(MONACO_Font       , 11);
+//================================================================================================================================================================
+   
 //==================================Initializations===============================================================================================================
     const RGBA bg_col = RGBA(24, 24, 24, 255);
     const RGBA highlighter_col = RGBA(0, 120, 212, 255);
-    vertical_tool_bar = new ImGui::ToolBar("Vertical", ImVec2(25, 25), bg_col, highlighter_col, 5, 30, ImGuiAxis_Y);
+
+    vertical_tool_bar = new ArmSimPro::ToolBar("Vertical", bg_col, 30, ImGuiAxis_Y);
     {
-        vertical_tool_bar->AppendTool("Folder", Folder_image, nullptr);
-        vertical_tool_bar->AppendTool("Search", Search_image, nullptr);
-        vertical_tool_bar->AppendTool("Debug", Debug_image, nullptr);
-        vertical_tool_bar->AppendTool("Simulate", Robot_image, nullptr);
-        vertical_tool_bar->AppendTool("Settings", Settings_image, nullptr, false);  
+        vertical_tool_bar->AppendTool("Explorer", Folder_image, ImplementDirectoryNode, false, true);                
+        vertical_tool_bar->AppendTool("Search", Search_image, SearchOnCodeEditor);                
+        vertical_tool_bar->AppendTool("Debug", Debug_image, nullptr);                  
+        vertical_tool_bar->AppendTool("Simulate", Robot_image, nullptr);                    
     }
 
-    horizontal_tool_bar = new ImGui::ToolBar("Horizontal", ImVec2(25, 25), bg_col, 30);
+    horizontal_tool_bar = new ArmSimPro::ToolBar("Horizontal", bg_col, 30, ImGuiAxis_X);
     {
-        horizontal_tool_bar->AppendTool("verify", Verify_image, nullptr);
-        horizontal_tool_bar->AppendTool("Upload", Compile_image, nullptr);
+        horizontal_tool_bar->AppendTool("verify", Verify_image, nullptr, true);   horizontal_tool_bar->SetPaddingBefore("verify", 10);
+        horizontal_tool_bar->AppendTool("Upload", Compile_image, nullptr, true);  horizontal_tool_bar->SetPaddingBefore("Upload", 5);
     }
 
-    status_bar = new ImGui::StatusBar("status", 30, horizontal_tool_bar->GetColor(), RGBA(51,57,60,200));
+    status_bar = new ArmSimPro::StatusBar("status", 30, horizontal_tool_bar->GetbackgroundColor());
+    cmd_panel = new ArmSimPro::CmdPanel("Command Line", status_bar->GetHeight(), bg_col, highlighter_col);
+
+//==============================================Setting up Code Editor======================================================================================
+    ArmSimPro::TextEditor txt_editor = ArmSimPro::TextEditor(bg_col.GetCol());
+    ArmSimPro::TextEditor::Palette colors;
+    {
+        colors[static_cast<unsigned int>(ArmSimPro::TextEditor::PaletteIndex::Background)] = ImGui::GetColorU32(RGBA(31, 31, 31, 255).GetCol());
+        colors[static_cast<unsigned int>(ArmSimPro::TextEditor::PaletteIndex::CurrentLineFill)] = ImGui::GetColorU32(RGBA(31, 31, 31, 80).GetCol());
+        colors[static_cast<unsigned int>(ArmSimPro::TextEditor::PaletteIndex::CurrentLineFillInactive)] = ImGui::GetColorU32(RGBA(31, 31, 31, 80).GetCol());
+        colors[static_cast<unsigned int>(ArmSimPro::TextEditor::PaletteIndex::CurrentLineEdge)] = ImGui::GetColorU32(RGBA(117, 117, 117, 255).GetCol());
+
+    }
+    //txt_editor->SetPalette(colors);
+
+    //language selection
+    static bool _use_cpp_lang = true; 
+    auto programming_lang = (_use_cpp_lang)? ArmSimPro::TextEditor::LanguageDefinition::CPlusPlus() : ArmSimPro::TextEditor::LanguageDefinition::C();
+
+    static const char* ppnames[] = { "NULL", "PM_REMOVE",
+		"ZeroMemory", "DXGI_SWAP_EFFECT_DISCARD", "D3D_FEATURE_LEVEL", "D3D_DRIVER_TYPE_HARDWARE", "WINAPI","D3D11_SDK_VERSION", "assert" };
+    
+    static const char* ppvalues[] = { 
+		"#define NULL ((void*)0)", 
+		"#define PM_REMOVE (0x0001)",
+		"Microsoft's own memory zapper function\n(which is a macro actually)\nvoid ZeroMemory(\n\t[in] PVOID  Destination,\n\t[in] SIZE_T Length\n); ", 
+		"enum DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_DISCARD = 0", 
+		"enum D3D_FEATURE_LEVEL", 
+		"enum D3D_DRIVER_TYPE::D3D_DRIVER_TYPE_HARDWARE  = ( D3D_DRIVER_TYPE_UNKNOWN + 1 )",
+		"#define WINAPI __stdcall",
+		"#define D3D11_SDK_VERSION (7)",
+		" #define assert(expression) (void)(                                                  \n"
+        "    (!!(expression)) ||                                                              \n"
+        "    (_wassert(_CRT_WIDE(#expression), _CRT_WIDE(__FILE__), (unsigned)(__LINE__)), 0) \n"
+        " )"
+		};
+    
+    for (int i = 0; i < sizeof(ppnames) / sizeof(ppnames[0]); ++i)
+	{
+		ArmSimPro::TextEditor::Identifier id;
+		id.mDeclaration = ppvalues[i];
+		programming_lang.mPreprocIdentifiers.insert(std::make_pair(std::string(ppnames[i]), id));
+	}
+
+	// set your own identifiers
+	static const char* identifiers[] = {
+		"HWND", "HRESULT", "LPRESULT","D3D11_RENDER_TARGET_VIEW_DESC", "DXGI_SWAP_CHAIN_DESC","MSG","LRESULT","WPARAM", "LPARAM","UINT","LPVOID",
+		"ID3D11Device", "ID3D11DeviceContext", "ID3D11Buffer", "ID3D11Buffer", "ID3D10Blob", "ID3D11VertexShader", "ID3D11InputLayout", "ID3D11Buffer",
+		"ID3D10Blob", "ID3D11PixelShader", "ID3D11SamplerState", "ID3D11ShaderResourceView", "ID3D11RasterizerState", "ID3D11BlendState", "ID3D11DepthStencilState",
+		"IDXGISwapChain", "ID3D11RenderTargetView", "ID3D11Texture2D", "TextEditor" };
+	static const char* idecls[] = 
+	{
+		"typedef HWND_* HWND", "typedef long HRESULT", "typedef long* LPRESULT", "struct D3D11_RENDER_TARGET_VIEW_DESC", "struct DXGI_SWAP_CHAIN_DESC",
+		"typedef tagMSG MSG\n * Message structure","typedef LONG_PTR LRESULT","WPARAM", "LPARAM","UINT","LPVOID",
+		"ID3D11Device", "ID3D11DeviceContext", "ID3D11Buffer", "ID3D11Buffer", "ID3D10Blob", "ID3D11VertexShader", "ID3D11InputLayout", "ID3D11Buffer",
+		"ID3D10Blob", "ID3D11PixelShader", "ID3D11SamplerState", "ID3D11ShaderResourceView", "ID3D11RasterizerState", "ID3D11BlendState", "ID3D11DepthStencilState",
+		"IDXGISwapChain", "ID3D11RenderTargetView", "ID3D11Texture2D", "class TextEditor" };
+	for (int i = 0; i < sizeof(identifiers) / sizeof(identifiers[0]); ++i)
+	{
+		ArmSimPro::TextEditor::Identifier id;
+		id.mDeclaration = std::string(idecls[i]);
+		programming_lang.mIdentifiers.insert(std::make_pair(std::string(identifiers[i]), id));
+	}
+	txt_editor.SetLanguageDefinition(programming_lang);
+	
+
+	// error markers
+	//ArmSimPro::TextEditor::ErrorMarkers markers;
+	//markers.insert(std::make_pair<int, std::string>(6, "Example error here:\nInclude file not found: \"TextEditor.h\""));
+	//markers.insert(std::make_pair<int, std::string>(41, "Another example error"));
+	//txt_editor->SetErrorMarkers(markers);
+
+	// "breakpoint" markers
+	//ArmSimPro::TextEditor::Breakpoints bpts;
+	//bpts.insert(24);
+	//bpts.insert(47);
+	//txt_editor->SetBreakpoints(bpts);
+
+	static const char* fileToEdit = "../../../src/CodeEditor.cpp";
+    std::string path = fileToEdit;
+    std::string result;
+
+    size_t found = path.find_last_of("/");
+    if (found != std::string::npos) 
+        result = path.substr(found + 1);
+    else 
+        result = path;
+
+    //read file and display
+	{
+		std::ifstream t(fileToEdit);
+		if (t.good())
+		{
+			std::string str((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
+			txt_editor.SetText(str);
+		}
+	}
+
 //==================================================================================================================================================================
 
     bool done = false;
@@ -180,6 +331,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
         {   
+            float main_menubar_height;
             if(ImGui::BeginMainMenuBar())
             {   
                 if (ImGui::BeginMenu("File"))
@@ -190,65 +342,149 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                     ImGui::Separator();
                     if (ImGui::MenuItem("Open", "CTRL+O")) {} 
                     if (ImGui::MenuItem("Close", "CTRL+W")) {} 
-                    if (ImGui::MenuItem("Save", "CTRL+S")) {} 
+                    if (ImGui::MenuItem("Save", "CTRL+S")) 
+                    {
+                        auto textToSave = txt_editor.GetText();
+                        /// save text....
+                    } 
+
                     if (ImGui::MenuItem("Save As", "CTRL+Shift+S")) {} 
                     ImGui::Separator();
                     if (ImGui::MenuItem("Cut", "CTRL+X")) {}
                     if (ImGui::MenuItem("Copy", "CTRL+C")) {}
+
                     ImGui::Separator();
-                    if (ImGui::MenuItem("Quit", "CTRL+Q")) {}
+                    if (ImGui::MenuItem("Quit", "CTRL+Q")) 
+                        break;
+                    
                     ImGui::EndMenu();
                 }
 
                 if (ImGui::BeginMenu("Edit"))
-                {
-                    if (ImGui::MenuItem("Undo", "CTRL+Z")) {}
-                    if (ImGui::MenuItem("Redo", "CTRL+Y", false, false)) {}  // Disabled item
+                {   
+                    bool ro = txt_editor.IsReadOnly();
+                    if (ImGui::MenuItem("Undo", "CTRL+Z", nullptr, !ro && txt_editor.CanUndo())) 
+                        txt_editor.Undo();
+                    if (ImGui::MenuItem("Redo", "CTRL+Y", nullptr, !ro && txt_editor.CanRedo())) 
+                        txt_editor.Redo();
                     ImGui::Separator();
-                    if (ImGui::MenuItem("Cut", "CTRL+X")) {}
-                    if (ImGui::MenuItem("Copy", "CTRL+C")) {}
-                    if (ImGui::MenuItem("Paste", "CTRL+V")) {}
+
+                    if (ImGui::MenuItem("Cut", "CTRL+X", nullptr, !ro && txt_editor.HasSelection())) 
+                        txt_editor.Cut();
+                    if (ImGui::MenuItem("Copy", "CTRL+C", nullptr, !ro && txt_editor.HasSelection()))
+                        txt_editor.Copy();
+                    if (ImGui::MenuItem("Delete", "Del", nullptr, !ro && txt_editor.HasSelection())) 
+                        txt_editor.Delete();
+                    if (ImGui::MenuItem("Paset", "Ctrl+V", nullptr, !ro && ImGui::GetClipboardText() != nullptr)) 
+                        txt_editor.Paste();
+                    ImGui::Separator();
+
+                    if (ImGui::MenuItem("Select all", nullptr, nullptr))
+					    txt_editor.SetSelection(ArmSimPro::TextEditor::Coordinates(), ArmSimPro::TextEditor::Coordinates(txt_editor.GetTotalLines(), 0));
+
                     ImGui::EndMenu();
                 }
+                main_menubar_height = ImGui::GetWindowHeight();
                 ImGui::EndMainMenuBar();
             }
+            auto cpos = txt_editor.GetCursorPosition();
 
-            vertical_tool_bar->SetPaddingBefore("Settings", ImGui::GetWindowHeight() - vertical_tool_bar->GetToolSize().y);
+            if(project_root_node.FileName.empty())
+                project_root_node = CreateDirectryNodeTreeFromPath(L"C:/Users/Ron Joshua Quirap/Documents/Projects/Empower-Smart-Deploy");
 
-            status_bar->SetStatusBar();
-            horizontal_tool_bar->SetToolBar();
-            vertical_tool_bar->SetToolBar(horizontal_tool_bar->GetThickness(), status_bar->GetThickness());
+            horizontal_tool_bar->SetToolBar(main_menubar_height + 10);
+            vertical_tool_bar->SetToolBar(horizontal_tool_bar->GetThickness(), status_bar->GetHeight() + 17);
 
-            static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
-
-            // We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
-            // because it would be confusing to have two docking targets within each others.
-            ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
-            ImGuiViewport* viewport = ImGui::GetMainViewport();
-            ImGui::SetNextWindowPos(viewport->Pos);
-            ImGui::SetNextWindowSize(viewport->Size);
-            ImGui::SetNextWindowViewport(viewport->ID);
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-            window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize;
-            window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
-
-            // When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background and handle the pass-thru hole, so we ask Begin() to not render a background.
-            if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
-            window_flags |= ImGuiWindowFlags_NoBackground;
-
-            RGBA bg = RGBA(31, 39,42, 255);
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, bg.GetCol());
-            ImGui::Begin("DockSpace", nullptr, window_flags);
+            status_bar->BeginStatusBar();
             {
-                ImGui::PopStyleVar();
-                ImGui::PopStyleVar(2);
+                float width = ImGui::GetWindowWidth();
+                char buffer[255];
 
-                
+                snprintf(buffer, sizeof(buffer), "%6d/%-6d %6d lines  | %s | %s | %s | %s", cpos.mLine + 1, cpos.mColumn + 1, txt_editor.GetTotalLines(),
+                            txt_editor.IsOverwrite() ? "Ovr" : "Ins",
+                            txt_editor.CanUndo() ? "*" : " ",
+                            txt_editor.GetLanguageDefinition().mName.c_str(), fileToEdit
+                        );
+
+                static ImVec2 textSize; 
+                if(textSize.x == NULL)
+                    textSize = ImGui::CalcTextSize(buffer); //this is a bottleneck function. should prevent it from always calculating.
+
+                ImGui::SetCursorPosX(width - (textSize.x + 40));
+                ImGui::Text(buffer);
             }
-            ImGui::End();
-            ImGui::PopStyleColor();
+            status_bar->EndStatusBar();
+
+            cmd_panel->SetPanel(100, vertical_tool_bar->GetTotalWidth());
+
+            //Code Editor dockable panel
+            {
+                ImGuiViewport* viewport = ImGui::GetMainViewport();
+
+                ImVec2 size, pos;
+                {                       
+                    const float menubar_toolbar_total_thickness = horizontal_tool_bar->GetThickness() + (main_menubar_height + 10);
+
+                    pos[ImGuiAxis_X]  = viewport->Pos[ImGuiAxis_X] + vertical_tool_bar->GetTotalWidth() + 20;
+                    pos[ImGuiAxis_Y]  = viewport->Pos[ImGuiAxis_Y] + menubar_toolbar_total_thickness + 8;
+
+                    size[ImGuiAxis_X] = viewport->WorkSize.x - vertical_tool_bar->GetTotalWidth() - 18;
+                    size[ImGuiAxis_Y] = viewport->WorkSize.y - (cmd_panel->GetCurretnHeight() + status_bar->GetHeight() + 47);
+                }
+
+                ImGui::SetNextWindowPos(pos);
+                ImGui::SetNextWindowSize(size);
+                ImGui::SetNextWindowViewport(viewport->ID);
+
+                //use the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
+                // because it would be confusing to have two docking targets within each others.
+                ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+                window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus; 
+                
+                static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
+                if(dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
+                    window_flags |= ImGuiWindowFlags_NoBackground;
+
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 10)); //used to change window titlebar height;
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+                ImGui::PushStyleColor(ImGuiCol_TitleBgActive, bg_col.GetCol());
+                ImGui::PushStyleColor(ImGuiCol_TitleBg, bg_col.GetCol());
+                ImGui::Begin("DockSpace", nullptr, window_flags);
+                {   
+                    
+                    ImGuiIO& io = ImGui::GetIO();
+                    if(io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+                    {
+                        ImGuiID dockspace_id = ImGui::GetID("MyDockspace");
+                        const ImVec2 dockspace_size = ImGui::GetContentRegionAvail();
+                        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags | ImGuiDockNodeFlags_NoWindowMenuButton);
+
+                        static bool first_run = true;
+                        if(first_run)
+                        {
+                            first_run = false;
+                            
+                            ImGui::DockBuilderRemoveNode(dockspace_id); // clear any previous layout
+                            ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+                            ImGui::DockBuilderSetNodeSize(dockspace_id, dockspace_size);
+
+                            ImGui::DockBuilderDockWindow(result.c_str(), dockspace_id);
+                            ImGui::DockBuilderFinish(dockspace_id);
+                        }
+                    }
+                }
+                ImGui::PopStyleColor(2);
+                ImGui::End();
+                ImGui::PopStyleVar(4);
+
+                ImGui::PushFont(CodeEditorFont);
+                txt_editor.Render(result.c_str());
+                ImGui::PopFont();
+                    
+                {}
+            }
         }
         ImGui::Render();
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
@@ -273,15 +509,132 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     ::DestroyWindow(hwnd);
     ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
 
-    delete file;
-    delete edit;
-
     delete vertical_tool_bar;
     delete horizontal_tool_bar;
-
+    delete cmd_panel;
     delete status_bar;
+
+    delete DefaultFont;  
+    delete CodeEditorFont;
+    delete FileTreeFont;
+    delete StatusBarFont;
+
     return 0;
 }
+
+void SearchOnCodeEditor()
+{   
+    static std::string buffer;
+
+    ImGui::Dummy(ImVec2(0.0f, 13.05f));
+    ImGui::Dummy(ImVec2(5.0f, 13.05f));
+    ImGui::SameLine();
+
+    ImGui::PushFont(FileTreeFont);
+    {   
+        static bool Show_Replace_InputText = false;
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255,255,255,255));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(49,49,49,255));
+            if(ImGui::Button(">"))
+                Show_Replace_InputText = true;
+            ImGui::SetItemTooltip("Toggle Replace");
+            ImGui::SameLine();
+            ImGui::Dummy(ImVec2(3.0f, 13.05f));
+            ImGui::SameLine();
+        ImGui::PopStyleColor(2);
+
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255,255,255,255));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(49,49,49,255));
+        ImGui::PushItemWidth(-1);
+            ImGui::InputTextWithHint("##Search", "Search", &buffer);
+            ImGui::SetItemTooltip("Search");
+        ImGui::PopItemWidth();
+        ImGui::PopStyleColor(2);
+    }
+    ImGui::PopFont();
+}
+
+//===============================================Tree View of directory Impl=====================================================
+void RecursivelyAddDirectoryNodes(DirectoryNode& parentNode, std::filesystem::directory_iterator directoryIterator)
+{
+    for (const std::filesystem::directory_entry& entry : directoryIterator)
+	{
+		DirectoryNode& childNode = parentNode.Children.emplace_back();
+		childNode.FullPath = entry.path().u8string();
+		childNode.FileName = entry.path().filename().u8string();
+        childNode.Selected = false;
+		if (childNode.IsDirectory = entry.is_directory(); childNode.IsDirectory)
+			RecursivelyAddDirectoryNodes(childNode, std::filesystem::directory_iterator(entry));
+	}
+
+	auto moveDirectoriesToFront = [](const DirectoryNode& a, const DirectoryNode& b) { return (a.IsDirectory > b.IsDirectory); };
+	std::sort(parentNode.Children.begin(), parentNode.Children.end(), moveDirectoriesToFront);
+}
+
+DirectoryNode CreateDirectryNodeTreeFromPath(const std::filesystem::path& rootPath)
+{
+    DirectoryNode rootNode;
+	rootNode.FullPath = rootPath.u8string();
+	rootNode.FileName = rootPath.filename().u8string();
+
+	if (rootNode.IsDirectory = std::filesystem::is_directory(rootPath); rootNode.IsDirectory)
+		RecursivelyAddDirectoryNodes(rootNode, std::filesystem::directory_iterator(rootPath));
+
+	return rootNode;
+}
+
+static unsigned int i = 0;
+static int node_clicked = -1;
+static int selection_mask = (1 << 2);
+
+void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode, size_t nChildren)
+{   
+    ImGuiTreeNodeFlags node_flags = ImGuiTreeNodeFlags_SpanFullWidth;
+    ImGui::PushID(&parentNode);
+	if (parentNode.IsDirectory)
+	{
+		if (ImGui::TreeNodeEx(parentNode.FileName.c_str(), ImGuiTreeNodeFlags_SpanFullWidth))
+		{   
+			for (DirectoryNode& childNode : parentNode.Children)
+				RecursivelyDisplayDirectoryNode(childNode, parentNode.Children.size());
+            
+			ImGui::TreePop();
+		}
+	}
+	else
+	{   
+        node_flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+        if((selection_mask & (1 << i)) !=0)
+            node_flags |= ImGuiTreeNodeFlags_Selected;
+
+		ImGui::TreeNodeEx(parentNode.FileName.c_str(), node_flags);
+		if(ImGui::IsItemClicked()){
+            node_clicked = i;
+        }    
+        ++i;
+    }
+    
+	ImGui::PopID();
+}
+
+void ImplementDirectoryNode()
+{
+    ImGui::Dummy(ImVec2(0.0f, 13.05f));
+    ImGui::Dummy(ImVec2(6.0f, 13.05f));
+    ImGui::SameLine();
+    
+    ImGui::PushFont(FileTreeFont);
+    if(!project_root_node.FileName.empty() || !project_root_node.FullPath.empty())
+	    RecursivelyDisplayDirectoryNode(project_root_node, project_root_node.Children.size());
+    
+   
+    if (node_clicked != -1)
+        selection_mask = (1 << node_clicked);
+    
+    ImGui::PopFont();
+}
+
+//================================================================================================================================
 
 bool CreateDeviceD3D(HWND hWnd)
 {
