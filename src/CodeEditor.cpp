@@ -25,6 +25,7 @@
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
 #include <tchar.h>
+#include <set>
 
 #include "MenuBar/File.h"
 #include "MenuBar/Edit.h"
@@ -33,6 +34,7 @@
 #include "StatusBar/StatusBar.h"
 #include "Editor/CmdPanel.h"
 #include "Editor/TextEditor.h"
+#include "FileDialog/FileDialog.h"
 
 using namespace std;
 
@@ -452,8 +454,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                 ImGui::PushStyleColor(ImGuiCol_TitleBgActive, bg_col.GetCol());
                 ImGui::PushStyleColor(ImGuiCol_TitleBg, bg_col.GetCol());
                 ImGui::Begin("DockSpace", nullptr, window_flags);
-                {   
-                    
+                {    
                     ImGuiIO& io = ImGui::GetIO();
                     if(io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
                     {
@@ -583,20 +584,23 @@ DirectoryNode CreateDirectryNodeTreeFromPath(const std::filesystem::path& rootPa
 	return rootNode;
 }
 
-static unsigned int i = 0;
-static int node_clicked = -1;
-static int selection_mask = (1 << 2);
-
-void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode, size_t nChildren)
+static std::set<ImGuiID> selections_storage;
+static ImGuiID selection;
+void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 {   
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    if (window->SkipItems)
+        return;
+
     ImGuiTreeNodeFlags node_flags = ImGuiTreeNodeFlags_SpanFullWidth;
     ImGui::PushID(&parentNode);
+
 	if (parentNode.IsDirectory)
-	{
-		if (ImGui::TreeNodeEx(parentNode.FileName.c_str(), ImGuiTreeNodeFlags_SpanFullWidth))
+	{  
+		if (ImGui::TreeNodeEx(parentNode.FileName.c_str(), node_flags))
 		{   
 			for (DirectoryNode& childNode : parentNode.Children)
-				RecursivelyDisplayDirectoryNode(childNode, parentNode.Children.size());
+                RecursivelyDisplayDirectoryNode(childNode);
             
 			ImGui::TreePop();
 		}
@@ -604,16 +608,22 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode, size_t nChildren
 	else
 	{   
         node_flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-        if((selection_mask & (1 << i)) !=0)
+        ImGuiID pressed_id = window->GetID(parentNode.FullPath.c_str());
+
+        if(pressed_id == selection || selections_storage.find(pressed_id) != selections_storage.end())
             node_flags |= ImGuiTreeNodeFlags_Selected;
 
 		ImGui::TreeNodeEx(parentNode.FileName.c_str(), node_flags);
-		if(ImGui::IsItemClicked()){
-            node_clicked = i;
+		if(ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+        {   
+            if(ImGui::GetIO().KeyCtrl)
+                selections_storage.insert(pressed_id);
+            else{
+                selection = pressed_id;
+                selections_storage.clear();
+            }
         }    
-        ++i;
     }
-    
 	ImGui::PopID();
 }
 
@@ -624,18 +634,14 @@ void ImplementDirectoryNode()
     ImGui::SameLine();
     
     ImGui::PushFont(FileTreeFont);
+
     if(!project_root_node.FileName.empty() || !project_root_node.FullPath.empty())
-	    RecursivelyDisplayDirectoryNode(project_root_node, project_root_node.Children.size());
-    
-   
-    if (node_clicked != -1)
-        selection_mask = (1 << node_clicked);
+	    RecursivelyDisplayDirectoryNode(project_root_node);
     
     ImGui::PopFont();
 }
 
 //================================================================================================================================
-
 bool CreateDeviceD3D(HWND hWnd)
 {
     DXGI_SWAP_CHAIN_DESC sd;
