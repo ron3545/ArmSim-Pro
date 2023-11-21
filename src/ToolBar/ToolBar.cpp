@@ -5,6 +5,11 @@
 
 #include <thread>
 #include <chrono>
+#include <mutex>
+#include <thread>
+#include <numeric>
+#include <future>
+
 using namespace std::chrono_literals;
 
 namespace ArmSimPro
@@ -78,8 +83,10 @@ namespace ArmSimPro
         return pressed;
     }
 
+    //static std::mutex Toolmutex;
     void ToolBar::SetToolBar(float top_margin, float bottom_margin)
     {   
+        //std::lock_guard<std::mutex> lock(Toolmutex);
         _toolbart_height = viewport->WorkSize.y - ((top_margin + bottom_margin));
         _primary_sidebar_posY= viewport->Pos.y + ((top_margin * 2) + 7);
 
@@ -155,8 +162,11 @@ namespace ArmSimPro
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
             
             ImGui::BeginChild(Tool.button_name.c_str(), ImVec2(windowSize.x - splitter_thickness, windowSize.y - splitter_thickness), false, ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove);
-            if(Tool.tool.ptr_to_func)
-                Tool.tool.ptr_to_func();
+                std::future<void> future;
+                if(Tool.tool.ptr_to_func){
+                    future = std::async(std::launch::async, Tool.tool.ptr_to_func);
+                    future.get();
+                }
             ImGui::EndChild();
             ImGui::PopStyleVar(2);
             ImGui::PopStyleColor();

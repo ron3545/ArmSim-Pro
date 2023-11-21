@@ -15,4 +15,5 @@ target_include_directories( FileDialog
         ${CMAKE_CURRENT_LIST_DIR}
         imgui
         Shell32.lib
+        d3d11.lib 
 )

@@ -1,5 +1,4 @@
 #define _CRT_SECURE_NO_WARNINGS
-
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
@@ -7,26 +6,8 @@
 #include "imgui/imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 
-#include <d3d11.h>
-#include <tchar.h>
-#include <dwmapi.h>
-#include <filesystem>
-#include <cstring>
-#include <map>
-#include <string_view>
 
-#include <mutex>
-#include <thread>
-#include <numeric>
-#include <future>
-
-#include <fstream>
-#include <streambuf>
-#define DIRECTINPUT_VERSION 0x0800
-#include <dinput.h>
-#include <tchar.h>
-#include <set>
-
+#include "Utils.hpp"
 #include "MenuBar/File.h"
 #include "MenuBar/Edit.h"
 #include "ToolBar/ToolBar.h"
@@ -65,30 +46,22 @@ static IDXGISwapChain*          g_pSwapChain = nullptr;
 static UINT                     g_ResizeWidth = 0, g_ResizeHeight = 0;
 static ID3D11RenderTargetView*  g_mainRenderTargetView = nullptr;
 
-bool CreateDeviceD3D(HWND hWnd);
-void CleanupDeviceD3D();
-void CreateRenderTarget();
-void CleanupRenderTarget();
-//==================================================TREE VIEW OF DIRECTORY===================================================================
-struct DirectoryNode
-{
-	std::string FullPath;
-	std::string FileName;
-	std::vector<DirectoryNode> Children;
-	bool IsDirectory;
-    bool Selected;
-};
-
-static DirectoryNode project_root_node;
-
-static void RecursivelyAddDirectoryNodes(DirectoryNode& parentNode, std::filesystem::directory_iterator directoryIterator);
-static DirectoryNode CreateDirectryNodeTreeFromPath(const std::filesystem::path& rootPath);
-static void ImplementDirectoryNode();
-
-//============================================TOOLBAR FUNCTIONS==========================================================================
-static void SearchOnCodeEditor();
 
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+DXGI_FORMAT CharToDXGIFormat(char fmt)
+{
+    switch (fmt)
+    {
+    case 0:
+        return DXGI_FORMAT_B8G8R8A8_UNORM; // Assuming BGRA format
+    case 1:
+        return DXGI_FORMAT_R8G8B8A8_UNORM; // Assuming RGBA format
+    // Add more cases as needed for other formats
+    default:
+        return DXGI_FORMAT_UNKNOWN;
+    }
+}
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow)
 {
@@ -133,7 +106,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
-   
+    io.IniFilename = NULL;
     io.DisplaySize = ImVec2(1280, 720) / io.DisplayFramebufferScale;
     
     ImGui::StyleColorsDark();
@@ -225,24 +198,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     //language selection
     static bool _use_cpp_lang = true; 
     auto programming_lang = (_use_cpp_lang)? ArmSimPro::TextEditor::LanguageDefinition::CPlusPlus() : ArmSimPro::TextEditor::LanguageDefinition::C();
-
-    static const char* ppnames[] = { "NULL", "PM_REMOVE",
-		"ZeroMemory", "DXGI_SWAP_EFFECT_DISCARD", "D3D_FEATURE_LEVEL", "D3D_DRIVER_TYPE_HARDWARE", "WINAPI","D3D11_SDK_VERSION", "assert" };
-    
-    static const char* ppvalues[] = { 
-		"#define NULL ((void*)0)", 
-		"#define PM_REMOVE (0x0001)",
-		"Microsoft's own memory zapper function\n(which is a macro actually)\nvoid ZeroMemory(\n\t[in] PVOID  Destination,\n\t[in] SIZE_T Length\n); ", 
-		"enum DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_DISCARD = 0", 
-		"enum D3D_FEATURE_LEVEL", 
-		"enum D3D_DRIVER_TYPE::D3D_DRIVER_TYPE_HARDWARE  = ( D3D_DRIVER_TYPE_UNKNOWN + 1 )",
-		"#define WINAPI __stdcall",
-		"#define D3D11_SDK_VERSION (7)",
-		" #define assert(expression) (void)(                                                  \n"
-        "    (!!(expression)) ||                                                              \n"
-        "    (_wassert(_CRT_WIDE(#expression), _CRT_WIDE(__FILE__), (unsigned)(__LINE__)), 0) \n"
-        " )"
-		};
     
     for (int i = 0; i < sizeof(ppnames) / sizeof(ppnames[0]); ++i)
 	{
@@ -251,20 +206,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 		programming_lang.mPreprocIdentifiers.insert(std::make_pair(std::string(ppnames[i]), id));
 	}
 
-	// set your own identifiers
-	static const char* identifiers[] = {
-		"HWND", "HRESULT", "LPRESULT","D3D11_RENDER_TARGET_VIEW_DESC", "DXGI_SWAP_CHAIN_DESC","MSG","LRESULT","WPARAM", "LPARAM","UINT","LPVOID",
-		"ID3D11Device", "ID3D11DeviceContext", "ID3D11Buffer", "ID3D11Buffer", "ID3D10Blob", "ID3D11VertexShader", "ID3D11InputLayout", "ID3D11Buffer",
-		"ID3D10Blob", "ID3D11PixelShader", "ID3D11SamplerState", "ID3D11ShaderResourceView", "ID3D11RasterizerState", "ID3D11BlendState", "ID3D11DepthStencilState",
-		"IDXGISwapChain", "ID3D11RenderTargetView", "ID3D11Texture2D", "TextEditor" };
-	static const char* idecls[] = 
-	{
-		"typedef HWND_* HWND", "typedef long HRESULT", "typedef long* LPRESULT", "struct D3D11_RENDER_TARGET_VIEW_DESC", "struct DXGI_SWAP_CHAIN_DESC",
-		"typedef tagMSG MSG\n * Message structure","typedef LONG_PTR LRESULT","WPARAM", "LPARAM","UINT","LPVOID",
-		"ID3D11Device", "ID3D11DeviceContext", "ID3D11Buffer", "ID3D11Buffer", "ID3D10Blob", "ID3D11VertexShader", "ID3D11InputLayout", "ID3D11Buffer",
-		"ID3D10Blob", "ID3D11PixelShader", "ID3D11SamplerState", "ID3D11ShaderResourceView", "ID3D11RasterizerState", "ID3D11BlendState", "ID3D11DepthStencilState",
-		"IDXGISwapChain", "ID3D11RenderTargetView", "ID3D11Texture2D", "class TextEditor" };
-	for (int i = 0; i < sizeof(identifiers) / sizeof(identifiers[0]); ++i)
+    for (int i = 0; i < sizeof(identifiers) / sizeof(identifiers[0]); ++i)
 	{
 		ArmSimPro::TextEditor::Identifier id;
 		id.mDeclaration = std::string(idecls[i]);
@@ -285,26 +227,45 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	//bpts.insert(47);
 	//txt_editor->SetBreakpoints(bpts);
 
-	static const char* fileToEdit = "../../../src/CodeEditor.cpp";
-    std::string path = fileToEdit;
-    std::string result;
+//==================================================Texture for File Dialog==============================================================  
+    ArmSimPro::FileDialog::Instance().CreateTexture = [](uint8_t* data, int w, int h, char fmt){
+        D3D11_TEXTURE2D_DESC desc;
+        ZeroMemory(&desc, sizeof(desc));
+        desc.Width = w;
+        desc.Height = h;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = fmt==0 ? DXGI_FORMAT_B8G8R8A8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        desc.CPUAccessFlags = 0;
 
-    size_t found = path.find_last_of("/");
-    if (found != std::string::npos) 
-        result = path.substr(found + 1);
-    else 
-        result = path;
+        ID3D11Texture2D* pTexture = NULL;
+        D3D11_SUBRESOURCE_DATA subResource;
+        subResource.pSysMem = data;
+        subResource.SysMemPitch = desc.Width * 4;
+        subResource.SysMemSlicePitch = 0;
+        g_pd3dDevice->CreateTexture2D(&desc, &subResource, &pTexture);
 
-    //read file and display
-	{
-		std::ifstream t(fileToEdit);
-		if (t.good())
-		{
-			std::string str((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
-			txt_editor.SetText(str);
-		}
-	}
+        // Create texture view
+        ID3D11ShaderResourceView* out_srv=NULL;
+        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
+        ZeroMemory(&srvDesc, sizeof(srvDesc));
+        srvDesc.Format = desc.Format;
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = desc.MipLevels;
+        srvDesc.Texture2D.MostDetailedMip = 0;
+        g_pd3dDevice->CreateShaderResourceView(pTexture, &srvDesc, &out_srv);
+        pTexture->Release();
 
+        return (void*)out_srv;
+    };
+
+    ArmSimPro::FileDialog::Instance().DeleteTexture = [&](void* tex){
+        ID3D11Texture2D* texture = static_cast<ID3D11Texture2D*>(tex);
+        texture->Release();
+    };
 //==================================================================================================================================================================
 
     bool done = false;
@@ -338,25 +299,30 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
             {   
                 if (ImGui::BeginMenu("File"))
                 {
-                    if (ImGui::MenuItem("New Sketch", "CTRL+N")) {}
-                    if (ImGui::MenuItem("New file", "CTRL+Alt+Windows+N")) {}
-                    if (ImGui::MenuItem("New Window", "CTRL+Shift+N")) {}
+                    if (ImGui::MenuItem("\tNew Sketch", "CTRL+N")) {}
+                    if (ImGui::MenuItem("\tNew file", "CTRL+Alt+Windows+N")) {}
+                    if (ImGui::MenuItem("\tNew Window", "CTRL+Shift+N")) {}
                     ImGui::Separator();
-                    if (ImGui::MenuItem("Open", "CTRL+O")) {} 
-                    if (ImGui::MenuItem("Close", "CTRL+W")) {} 
-                    if (ImGui::MenuItem("Save", "CTRL+S")) 
+                    if (ImGui::MenuItem("\tOpen", "CTRL+O")) {} 
+                    if (ImGui::MenuItem("\tClose", "CTRL+W")) {}
+
+                    static bool auto_save = false;
+                    ImGui::MenuItem("\tAuto Save", "", &auto_save);
+                    if (auto_save) {}
+
+                    if (ImGui::MenuItem("\tSave", "CTRL+S")) 
                     {
                         auto textToSave = txt_editor.GetText();
                         /// save text....
                     } 
 
-                    if (ImGui::MenuItem("Save As", "CTRL+Shift+S")) {} 
+                    if (ImGui::MenuItem("\tSave As", "CTRL+Shift+S")) {} 
                     ImGui::Separator();
-                    if (ImGui::MenuItem("Cut", "CTRL+X")) {}
-                    if (ImGui::MenuItem("Copy", "CTRL+C")) {}
+                    if (ImGui::MenuItem("\tCut", "CTRL+X")) {}
+                    if (ImGui::MenuItem("\tCopy", "CTRL+C")) {}
 
                     ImGui::Separator();
-                    if (ImGui::MenuItem("Quit", "CTRL+Q")) 
+                    if (ImGui::MenuItem("\tQuit", "CTRL+Q")) 
                         break;
                     
                     ImGui::EndMenu();
@@ -365,23 +331,23 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                 if (ImGui::BeginMenu("Edit"))
                 {   
                     bool ro = txt_editor.IsReadOnly();
-                    if (ImGui::MenuItem("Undo", "CTRL+Z", nullptr, !ro && txt_editor.CanUndo())) 
+                    if (ImGui::MenuItem("\tUndo", "CTRL+Z", nullptr, !ro && txt_editor.CanUndo())) 
                         txt_editor.Undo();
-                    if (ImGui::MenuItem("Redo", "CTRL+Y", nullptr, !ro && txt_editor.CanRedo())) 
+                    if (ImGui::MenuItem("\tRedo", "CTRL+Y", nullptr, !ro && txt_editor.CanRedo())) 
                         txt_editor.Redo();
                     ImGui::Separator();
 
-                    if (ImGui::MenuItem("Cut", "CTRL+X", nullptr, !ro && txt_editor.HasSelection())) 
+                    if (ImGui::MenuItem("\tCut", "CTRL+X", nullptr, !ro && txt_editor.HasSelection())) 
                         txt_editor.Cut();
-                    if (ImGui::MenuItem("Copy", "CTRL+C", nullptr, !ro && txt_editor.HasSelection()))
+                    if (ImGui::MenuItem("\tCopy", "CTRL+C", nullptr, !ro && txt_editor.HasSelection()))
                         txt_editor.Copy();
-                    if (ImGui::MenuItem("Delete", "Del", nullptr, !ro && txt_editor.HasSelection())) 
+                    if (ImGui::MenuItem("\tDelete", "Del", nullptr, !ro && txt_editor.HasSelection())) 
                         txt_editor.Delete();
-                    if (ImGui::MenuItem("Paset", "Ctrl+V", nullptr, !ro && ImGui::GetClipboardText() != nullptr)) 
+                    if (ImGui::MenuItem("\tPaset", "Ctrl+V", nullptr, !ro && ImGui::GetClipboardText() != nullptr)) 
                         txt_editor.Paste();
                     ImGui::Separator();
 
-                    if (ImGui::MenuItem("Select all", nullptr, nullptr))
+                    if (ImGui::MenuItem("\tSelect all", nullptr, nullptr))
 					    txt_editor.SetSelection(ArmSimPro::TextEditor::Coordinates(), ArmSimPro::TextEditor::Coordinates(txt_editor.GetTotalLines(), 0));
 
                     ImGui::EndMenu();
@@ -389,12 +355,26 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                 main_menubar_height = ImGui::GetWindowHeight();
                 ImGui::EndMainMenuBar();
             }
+
+            if(Selected_File_Path.empty() && project_root_node.FileName.empty() && project_root_node.FullPath.empty())
+                Selcted_File_Name = "\tWelcome\t";
+                
+            //read file
+            if(!Selected_File_Path.empty() && Selected_File_Path != Prev_Selected_File_Path)
+            {   
+                Prev_Selected_File_Path = Selected_File_Path;
+                std::ifstream t(Selected_File_Path.c_str());
+                if (t.good())
+                {
+                    std::string str((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
+                    txt_editor.SetText(str);
+                }
+            }
             auto cpos = txt_editor.GetCursorPosition();
 
-            if(project_root_node.FileName.empty())
-                project_root_node = CreateDirectryNodeTreeFromPath(L"C:/Users/Ron Joshua Quirap/Documents/Projects/Empower-Smart-Deploy");
-
             horizontal_tool_bar->SetToolBar(main_menubar_height + 10);
+
+            //auto f_vertical_result = std::async(std::launch::async, &ArmSimPro::ToolBar::SetToolBar, vertical_tool_bar, horizontal_tool_bar->GetThickness(), status_bar->GetHeight() + 17);
             vertical_tool_bar->SetToolBar(horizontal_tool_bar->GetThickness(), status_bar->GetHeight() + 17);
 
             status_bar->BeginStatusBar();
@@ -402,10 +382,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                 float width = ImGui::GetWindowWidth();
                 char buffer[255];
 
-                snprintf(buffer, sizeof(buffer), "%6d/%-6d %6d lines  | %s | %s | %s | %s", cpos.mLine + 1, cpos.mColumn + 1, txt_editor.GetTotalLines(),
+                snprintf(buffer, sizeof(buffer), "Ln %d, Col %-6d %6d lines  | %s | %s | %s | %s", cpos.mLine + 1, cpos.mColumn + 1, txt_editor.GetTotalLines(),
                             txt_editor.IsOverwrite() ? "Ovr" : "Ins",
                             txt_editor.CanUndo() ? "*" : " ",
-                            txt_editor.GetLanguageDefinition().mName.c_str(), fileToEdit
+                            txt_editor.GetLanguageDefinition().mName.c_str(), Selcted_File_Name.c_str()
                         );
 
                 static ImVec2 textSize; 
@@ -471,7 +451,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                             ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
                             ImGui::DockBuilderSetNodeSize(dockspace_id, dockspace_size);
 
-                            ImGui::DockBuilderDockWindow(result.c_str(), dockspace_id);
+                            ImGui::DockBuilderDockWindow(Selcted_File_Name.c_str(), dockspace_id);
                             ImGui::DockBuilderFinish(dockspace_id);
                         }
                     }
@@ -480,11 +460,39 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                 ImGui::End();
                 ImGui::PopStyleVar(4);
 
-                ImGui::PushFont(CodeEditorFont);
-                txt_editor.Render(result.c_str());
-                ImGui::PopFont();
-                    
-                {}
+                if(Selected_File_Path.empty())
+                {
+                    // Render Welcome Page
+                    ImGuiWindowClass window_class;
+                    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_CentralNode; 
+                    ImGui::SetNextWindowClass(&window_class);
+
+                    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+                    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 0.0f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 0.0f);
+                    ImGui::PushStyleColor(ImGuiCol_WindowBg, bg_col.GetCol());
+                    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, bg_col.GetCol());
+                    ImGui::PushStyleColor(ImGuiCol_TitleBg, bg_col.GetCol());
+                    ImGui::Begin(Selcted_File_Name.c_str());
+                    {
+                        
+                    }
+                    ImGui::PopStyleColor(3);
+                    ImGui::End();
+                    ImGui::PopStyleVar(3);
+                }
+                else if(!Selected_File_Path.empty())
+                {
+                    /**
+                     ToDo:
+                     *  Write a code that programatically docked this window
+                     *  Write a containter that stores the instances of the text editors needed to display
+                     *  Write a code for the TextEditor to easily identify structs, classes,
+                    */
+                    ImGui::PushFont(CodeEditorFont);
+                    txt_editor.Render(Selcted_File_Name.c_str());
+                    ImGui::PopFont();
+                }
             }
         }
         ImGui::Render();
@@ -567,13 +575,14 @@ void RecursivelyAddDirectoryNodes(DirectoryNode& parentNode, std::filesystem::di
 		if (childNode.IsDirectory = entry.is_directory(); childNode.IsDirectory)
 			RecursivelyAddDirectoryNodes(childNode, std::filesystem::directory_iterator(entry));
 	}
-
 	auto moveDirectoriesToFront = [](const DirectoryNode& a, const DirectoryNode& b) { return (a.IsDirectory > b.IsDirectory); };
 	std::sort(parentNode.Children.begin(), parentNode.Children.end(), moveDirectoriesToFront);
 }
 
+static std::mutex DirectoryMutex;
 DirectoryNode CreateDirectryNodeTreeFromPath(const std::filesystem::path& rootPath)
-{
+{   
+    std::lock_guard<std::mutex> lock(DirectoryMutex);
     DirectoryNode rootNode;
 	rootNode.FullPath = rootPath.u8string();
 	rootNode.FileName = rootPath.filename().u8string();
@@ -586,7 +595,8 @@ DirectoryNode CreateDirectryNodeTreeFromPath(const std::filesystem::path& rootPa
 
 static std::set<ImGuiID> selections_storage;
 static ImGuiID selection;
-void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
+static std::string Selected_Directory;
+static void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 {   
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (window->SkipItems)
@@ -596,7 +606,12 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
     ImGui::PushID(&parentNode);
 
 	if (parentNode.IsDirectory)
-	{  
+	{   
+        ImGuiID selectedDir = window->GetID(Selected_Directory.c_str());
+        ImGuiID currentDir = window->GetID(parentNode.FileName.c_str());
+        if(selectedDir == currentDir)
+            node_flags |= ImGuiTreeNodeFlags_DefaultOpen;
+
 		if (ImGui::TreeNodeEx(parentNode.FileName.c_str(), node_flags))
 		{   
 			for (DirectoryNode& childNode : parentNode.Children)
@@ -616,6 +631,9 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 		ImGui::TreeNodeEx(parentNode.FileName.c_str(), node_flags);
 		if(ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
         {   
+            Selected_File_Path = parentNode.FullPath; //This will show the selected file and render it to text editor
+            Selcted_File_Name = std::string("\t" + parentNode.FileName + "\t");
+
             if(ImGui::GetIO().KeyCtrl)
                 selections_storage.insert(pressed_id);
             else{
@@ -627,17 +645,44 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 	ImGui::PopID();
 }
 
+static std::mutex ImplDirTree;
 void ImplementDirectoryNode()
 {
+    std::lock_guard<std::mutex> lock(ImplDirTree);
+
     ImGui::Dummy(ImVec2(0.0f, 13.05f));
     ImGui::Dummy(ImVec2(6.0f, 13.05f));
     ImGui::SameLine();
-    
-    ImGui::PushFont(FileTreeFont);
 
+    float width = ImGui::GetWindowWidth();
+    static std::filesystem::path rootPath;
+    if(rootPath.empty())
+    {
+        ImGui::PushFont(FileTreeFont);
+        ImGui::Text("You have not opened a folder");
+        ImGui::SetCursorPos(ImVec2(10, 50));
+        if(ImGui::Button("Open Folder", ImVec2(width - 30, 0)))
+            ArmSimPro::FileDialog::Instance().Open("DirectoryOpenDialog", "Select project directory", "");
+
+        if (ArmSimPro::FileDialog::Instance().IsDone("DirectoryOpenDialog")) {
+			if (ArmSimPro::FileDialog::Instance().HasResult()) 
+				rootPath = ArmSimPro::FileDialog::Instance().GetResult();
+			
+			ArmSimPro::FileDialog::Instance().Close();
+		}
+        ImGui::PopFont();
+    }
+
+    if(!rootPath.empty() && project_root_node.FileName.empty())
+    {   
+        Selected_Directory = rootPath.filename().u8string();
+        std::future<DirectoryNode> future_result = std::async(std::launch::async, CreateDirectryNodeTreeFromPath, rootPath);
+        project_root_node = future_result.get();
+    }
+
+    ImGui::PushFont(FileTreeFont);
     if(!project_root_node.FileName.empty() || !project_root_node.FullPath.empty())
 	    RecursivelyDisplayDirectoryNode(project_root_node);
-    
     ImGui::PopFont();
 }
 

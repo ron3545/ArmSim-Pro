@@ -14,7 +14,9 @@
 #define IFD_DIALOG_DIRECTORY	1
 #define IFD_DIALOG_SAVE			2
 
-namespace ifd {
+
+
+namespace ArmSimPro {
 	class FileDialog {
 	public:
 		static inline FileDialog& Instance()
