@@ -5,17 +5,7 @@
 #include "imgui/imgui_stdlib.h"
 #include "imgui/imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
-
-
 #include "Utils.hpp"
-#include "MenuBar/File.h"
-#include "MenuBar/Edit.h"
-#include "ToolBar/ToolBar.h"
-#include "ImageHandler/ImageHandler.h"
-#include "StatusBar/StatusBar.h"
-#include "Editor/CmdPanel.h"
-#include "Editor/TextEditor.h"
-#include "FileDialog/FileDialog.h"
 
 using namespace std;
 
@@ -46,22 +36,7 @@ static IDXGISwapChain*          g_pSwapChain = nullptr;
 static UINT                     g_ResizeWidth = 0, g_ResizeHeight = 0;
 static ID3D11RenderTargetView*  g_mainRenderTargetView = nullptr;
 
-
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-DXGI_FORMAT CharToDXGIFormat(char fmt)
-{
-    switch (fmt)
-    {
-    case 0:
-        return DXGI_FORMAT_B8G8R8A8_UNORM; // Assuming BGRA format
-    case 1:
-        return DXGI_FORMAT_R8G8B8A8_UNORM; // Assuming RGBA format
-    // Add more cases as needed for other formats
-    default:
-        return DXGI_FORMAT_UNKNOWN;
-    }
-}
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow)
 {
@@ -163,8 +138,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 //================================================================================================================================================================
    
 //==================================Initializations===============================================================================================================
-    const RGBA bg_col = RGBA(24, 24, 24, 255);
-    const RGBA highlighter_col = RGBA(0, 120, 212, 255);
 
     vertical_tool_bar = new ArmSimPro::ToolBar("Vertical", bg_col, 30, ImGuiAxis_Y);
     {
@@ -381,12 +354,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
             {
                 float width = ImGui::GetWindowWidth();
                 char buffer[255];
-
-                snprintf(buffer, sizeof(buffer), "Ln %d, Col %-6d %6d lines  | %s | %s | %s | %s", cpos.mLine + 1, cpos.mColumn + 1, txt_editor.GetTotalLines(),
-                            txt_editor.IsOverwrite() ? "Ovr" : "Ins",
-                            txt_editor.CanUndo() ? "*" : " ",
-                            txt_editor.GetLanguageDefinition().mName.c_str(), Selcted_File_Name.c_str()
-                        );
+                if(!Selcted_File_Name.empty())
+                    snprintf(buffer, sizeof(buffer), "Ln %d, Col %-6d %6d lines  | %s | %s | %s | %s", cpos.mLine + 1, cpos.mColumn + 1, txt_editor.GetTotalLines(),
+                                txt_editor.IsOverwrite() ? "Ovr" : "Ins",
+                                txt_editor.CanUndo() ? "*" : " ",
+                                txt_editor.GetLanguageDefinition().mName.c_str(), Selcted_File_Name.c_str()
+                            );
 
                 static ImVec2 textSize; 
                 if(textSize.x == NULL)
@@ -442,16 +415,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                         const ImVec2 dockspace_size = ImGui::GetContentRegionAvail();
                         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags | ImGuiDockNodeFlags_NoWindowMenuButton);
 
-                        static bool first_run = true;
-                        if(first_run)
+                        if(Selcted_File_Name != Prev_Selected_File_Name)
                         {
-                            first_run = false;
+                            Prev_Selected_File_Name = Selcted_File_Name;
                             
                             ImGui::DockBuilderRemoveNode(dockspace_id); // clear any previous layout
                             ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
                             ImGui::DockBuilderSetNodeSize(dockspace_id, dockspace_size);
 
-                            ImGui::DockBuilderDockWindow(Selcted_File_Name.c_str(), dockspace_id);
+                            if(!Selcted_File_Name.empty())
+                                ImGui::DockBuilderDockWindow(Selcted_File_Name.c_str(), dockspace_id);
+                            else
+                            {
+                                //Use this part to render all selected window
+                            }
                             ImGui::DockBuilderFinish(dockspace_id);
                         }
                     }
@@ -460,7 +437,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                 ImGui::End();
                 ImGui::PopStyleVar(4);
 
-                if(Selected_File_Path.empty())
+                if(Selected_File_Path.empty() && Opened_TextEditors.empty())
                 {
                     // Render Welcome Page
                     ImGuiWindowClass window_class;
@@ -473,7 +450,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                     ImGui::PushStyleColor(ImGuiCol_WindowBg, bg_col.GetCol());
                     ImGui::PushStyleColor(ImGuiCol_TitleBgActive, bg_col.GetCol());
                     ImGui::PushStyleColor(ImGuiCol_TitleBg, bg_col.GetCol());
-                    ImGui::Begin(Selcted_File_Name.c_str());
+                    ImGui::Begin(Selcted_File_Name.c_str(), nullptr, ImGuiWindowFlags_NoMove);
                     {
                         
                     }
@@ -491,6 +468,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                     */
                     ImGui::PushFont(CodeEditorFont);
                     txt_editor.Render(Selcted_File_Name.c_str());
+                    ImGui::PopFont();
+                }
+                else if(!Opened_TextEditors.empty())
+                {   
+                    ImGui::PushFont(CodeEditorFont);
+                    //render the Opened_TextEditors here
                     ImGui::PopFont();
                 }
             }
@@ -595,23 +578,22 @@ DirectoryNode CreateDirectryNodeTreeFromPath(const std::filesystem::path& rootPa
 
 static std::set<ImGuiID> selections_storage;
 static ImGuiID selection;
-static std::string Selected_Directory;
+//static std::string Selected_Directory;
 static void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 {   
     ImGuiWindow* window = ImGui::GetCurrentWindow();
-    if (window->SkipItems)
-        return;
 
     ImGuiTreeNodeFlags node_flags = ImGuiTreeNodeFlags_SpanFullWidth;
     ImGui::PushID(&parentNode);
 
 	if (parentNode.IsDirectory)
 	{   
-        ImGuiID selectedDir = window->GetID(Selected_Directory.c_str());
-        ImGuiID currentDir = window->GetID(parentNode.FileName.c_str());
-        if(selectedDir == currentDir)
-            node_flags |= ImGuiTreeNodeFlags_DefaultOpen;
+        //ImGuiID selectedDir = window->GetID(Selected_Directory.c_str());
+        //ImGuiID currentDir = window->GetID(parentNode.FileName.c_str());
+        //if(selectedDir == currentDir)
+            //node_flags |= ImGuiTreeNodeFlags_DefaultOpen;
 
+        ImGui::PushFont(FileTreeFont);
 		if (ImGui::TreeNodeEx(parentNode.FileName.c_str(), node_flags))
 		{   
 			for (DirectoryNode& childNode : parentNode.Children)
@@ -619,6 +601,29 @@ static void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
             
 			ImGui::TreePop();
 		}
+        ImGui::PopFont();
+
+        if(ImGui::IsItemClicked(ImGuiMouseButton_Right))
+            ImGui::OpenPopup("Edit Folder");
+        
+        ImGui::PushFont(DefaultFont);
+        if(ImGui::BeginPopup("Edit Folder"))
+        {
+            // s => Seperator
+            const char* popup_items[]   = {"\tNew File...\t", "\tNew Folder...\t", "\tReveal in File Explorer\t", "s", "\tCut\t", "\tCopy\t", "s","\tCopy Relative Path\t", "s", "\tRename...\t", "\tDelete\t"};
+            
+            for(int i = 0; i < IM_ARRAYSIZE(popup_items); i++)
+            {
+                if(strcmp(popup_items[i], "s") == 0){
+                    ImGui::Separator();
+                    continue;
+                }
+                ImGui::MenuItem(popup_items[i]);
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopFont();
+        
 	}
 	else
 	{   
@@ -628,19 +633,79 @@ static void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
         if(pressed_id == selection || selections_storage.find(pressed_id) != selections_storage.end())
             node_flags |= ImGuiTreeNodeFlags_Selected;
 
+        ImGui::PushFont(FileTreeFont);
 		ImGui::TreeNodeEx(parentNode.FileName.c_str(), node_flags);
+        ImGui::PopFont();
 		if(ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
         {   
-            Selected_File_Path = parentNode.FullPath; //This will show the selected file and render it to text editor
-            Selcted_File_Name = std::string("\t" + parentNode.FileName + "\t");
-
             if(ImGui::GetIO().KeyCtrl)
                 selections_storage.insert(pressed_id);
             else{
                 selection = pressed_id;
                 selections_storage.clear();
             }
+
+            //Select Items t
+            if(ImGui::IsMouseDoubleClicked(0))
+            {   
+                if(Opened_TextEditors.find(parentNode.FullPath) == Opened_TextEditors.end())
+                {
+                    ArmSimPro::TextEditor editor(bg_col.GetCol());
+                    auto programming_lang = ArmSimPro::TextEditor::LanguageDefinition::CPlusPlus();
+
+                    for (int i = 0; i < sizeof(ppnames) / sizeof(ppnames[0]); ++i)
+                    {
+                        ArmSimPro::TextEditor::Identifier id;
+                        id.mDeclaration = ppvalues[i];
+                        programming_lang.mPreprocIdentifiers.insert(std::make_pair(std::string(ppnames[i]), id));
+                    }
+
+                    for (int i = 0; i < sizeof(identifiers) / sizeof(identifiers[0]); ++i)
+                    {
+                        ArmSimPro::TextEditor::Identifier id;
+                        id.mDeclaration = std::string(idecls[i]);
+                        programming_lang.mIdentifiers.insert(std::make_pair(std::string(identifiers[i]), id));
+                    }
+                    editor.SetLanguageDefinition(programming_lang);
+
+                    std::ifstream t(Selected_File_Path.c_str());
+                    if (t.good())
+                    {
+                        std::string str((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
+                        editor.SetText(str);
+                    }
+
+                    Opened_TextEditors.insert(std::make_pair(parentNode.FullPath, editor));
+                }
+            }
+            else
+            {
+                Selected_File_Path = parentNode.FullPath; //This will show the selected file and render it to text editor
+                Selcted_File_Name = std::string("\t" + parentNode.FileName + "\t");
+            }
         }    
+        else if(ImGui::IsItemClicked(ImGuiMouseButton_Right) && !ImGui::IsItemToggledOpen())
+            ImGui::OpenPopup("Edit File");
+        
+        ImGui::PushFont(DefaultFont);
+        if(ImGui::BeginPopup("Edit File"))
+        {
+            // s => Seperator
+            const char* popup_items[]   = {"\tCut\t", "\tCopy\t", "s", "\tCopy Path\t", "\tCopy Relative Path\t", "s", "\tRename...\t", "\tDelete\t"};
+            const char* key_shortcuts[] = {"Ctrl+X", "Ctrl+C", "Shift+Alt+C", "Ctrl+K Ctrl+Shift+C", "F2", "Delete"}; 
+            int k = 0;
+            for(int i = 0; i < IM_ARRAYSIZE(popup_items); i++)
+            {
+                if(strcmp(popup_items[i], "s") == 0){
+                    ImGui::Separator();
+                    continue;
+                }
+                ImGui::MenuItem(popup_items[i], key_shortcuts[k]);
+                k += 1;
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopFont();
     }
 	ImGui::PopID();
 }
@@ -650,40 +715,101 @@ void ImplementDirectoryNode()
 {
     std::lock_guard<std::mutex> lock(ImplDirTree);
 
+    static bool is_Open = true;
     ImGui::Dummy(ImVec2(0.0f, 13.05f));
     ImGui::Dummy(ImVec2(6.0f, 13.05f));
     ImGui::SameLine();
 
     float width = ImGui::GetWindowWidth();
-    static std::filesystem::path rootPath;
-    if(rootPath.empty())
+    
+    if(SelectedProjectPath.empty())
     {
         ImGui::PushFont(FileTreeFont);
-        ImGui::Text("You have not opened a folder");
-        ImGui::SetCursorPos(ImVec2(10, 50));
+        ImGui::TextWrapped("You have not opened a project folder.\n\nYou can open an existing PlatformIO-based project (a folder that contains platformio.ini file).\n\n");
         if(ImGui::Button("Open Folder", ImVec2(width - 30, 0)))
-            ArmSimPro::FileDialog::Instance().Open("DirectoryOpenDialog", "Select project directory", "");
+            ArmSimPro::FileDialog::Instance().Open("SelectProjectDir", "Select project", "");
 
-        if (ArmSimPro::FileDialog::Instance().IsDone("DirectoryOpenDialog")) {
+        if (ArmSimPro::FileDialog::Instance().IsDone("SelectProjectDir")) {
 			if (ArmSimPro::FileDialog::Instance().HasResult()) 
-				rootPath = ArmSimPro::FileDialog::Instance().GetResult();
+				SelectedProjectPath = ArmSimPro::FileDialog::Instance().GetResult();
 			
 			ArmSimPro::FileDialog::Instance().Close();
 		}
+        
+        ImGui::Spacing();
+        ImGui::TextWrapped("\nYou can create a new PlatformIo based Project or explore the examples of ArmSim Kit\n\n");
+        if(ImGui::Button("Create New Project", ImVec2(width - 30, 0)))
+            ImGui::OpenPopup("Project Wizard");
+
+        ImGui::SetNextWindowSize(ImVec2(700, 300));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(50.0f, 10.0f));
+        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, bg_col.GetCol());
+        ImGui::PushStyleColor(ImGuiCol_TitleBg, bg_col.GetCol());
+        if(ImGui::BeginPopupModal("Project Wizard", &is_Open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
+        {   
+            ImGui::TextWrapped("This wizard allows you to create new PlatformIO project. In the last case, you need to uncheck \"Use default location\" and specify path to chosen directory");
+            
+            ImGui::SetCursorPos(ImVec2(60, 130));
+            ImGui::Text("Project Name:"); ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(240,0,0,255));
+            ImGui::InputText("##Project Name", &Project_Name);
+            ImGui::PopStyleColor();
+
+            ImGui::SetCursorPos(ImVec2(97, 180));
+            ImGui::Text("Location:"); ImGui::SameLine();
+
+            std::string Project_FullPath= NewProjectDir.u8string();
+            ImGui::InputText("##Location", &Project_FullPath, ImGuiInputTextFlags_ReadOnly);
+
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 10.0f));
+            if(ImGui::IsItemClicked() && !UseDefault_Location)
+                ArmSimPro::FileDialog::Instance().Open("SelectNewProjectDir", "Select project directory", "");
+
+            if (ArmSimPro::FileDialog::Instance().IsDone("SelectNewProjectDir")) {
+                if (ArmSimPro::FileDialog::Instance().HasResult()) 
+                    NewProjectDir = ArmSimPro::FileDialog::Instance().GetResult();
+                
+                ArmSimPro::FileDialog::Instance().Close();
+            }
+            ImGui::PopStyleVar();
+
+            ImGui::Checkbox("Use default Location", &UseDefault_Location);
+            if(UseDefault_Location)
+                NewProjectDir = std::filesystem::current_path();
+
+            ImGui::SetCursorPosY(240);
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            ImGui::Dummy(ImVec2(0, 15));
+            ImGui::SetCursorPosX(500);
+            if(ImGui::Button("Cancel"))
+            {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            ImGui::Dummy(ImVec2(10, 0)); ImGui::SameLine();
+            if(ImGui::Button("Finish"))
+            {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
         ImGui::PopFont();
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar();
+        
     }
 
-    if(!rootPath.empty() && project_root_node.FileName.empty())
+    if(!SelectedProjectPath.empty() && project_root_node.FileName.empty())
     {   
-        Selected_Directory = rootPath.filename().u8string();
-        std::future<DirectoryNode> future_result = std::async(std::launch::async, CreateDirectryNodeTreeFromPath, rootPath);
+        //Selected_Directory = rootPath.filename().u8string();
+        std::future<DirectoryNode> future_result = std::async(std::launch::async, CreateDirectryNodeTreeFromPath, SelectedProjectPath);
         project_root_node = future_result.get();
     }
 
-    ImGui::PushFont(FileTreeFont);
     if(!project_root_node.FileName.empty() || !project_root_node.FullPath.empty())
 	    RecursivelyDisplayDirectoryNode(project_root_node);
-    ImGui::PopFont();
 }
 
 //================================================================================================================================

@@ -1341,7 +1341,7 @@ namespace  ArmSimPro
                         modified = true;
                     }
                 }
-
+                
                 if (modified)
                 {
                     start = Coordinates(start.mLine, GetCharacterColumn(start.mLine, 0));

@@ -23,6 +23,28 @@
 #include <tchar.h>
 #include <set>
 
+#include "MenuBar/File.h"
+#include "MenuBar/Edit.h"
+#include "ToolBar/ToolBar.h"
+#include "ImageHandler/ImageHandler.h"
+#include "StatusBar/StatusBar.h"
+#include "Editor/CmdPanel.h"
+#include "Editor/TextEditor.h"
+#include "FileDialog/FileDialog.h"
+
+//=======================================================Variables==========================================================================
+static std::map<std::string, ArmSimPro::TextEditor> Opened_TextEditors;  //Storage for all the instances of text editors that has been opened
+static size_t prev_number_opened_texteditor;
+
+static std::filesystem::path SelectedProjectPath; 
+static std::filesystem::path NewProjectDir; 
+
+static std::string Project_Name;        // name of the project
+static bool UseDefault_Location = true;
+
+const RGBA bg_col = RGBA(24, 24, 24, 255);
+const RGBA highlighter_col = RGBA(0, 120, 212, 255);
+//==========================================================================================================================================
 bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
 void CreateRenderTarget();
@@ -40,13 +62,13 @@ struct DirectoryNode
 static DirectoryNode project_root_node;
 
 static std::string Prev_Selected_File_Path;
-static std::string Selected_File_Path;          std::string Selcted_File_Name;
+static std::string Selected_File_Path;          
+static std::string Selcted_File_Name;
+static std::string Prev_Selected_File_Name;
 
 static void RecursivelyAddDirectoryNodes(DirectoryNode& parentNode, std::filesystem::directory_iterator directoryIterator);
 static DirectoryNode CreateDirectryNodeTreeFromPath(const std::filesystem::path& rootPath);
 static void ImplementDirectoryNode();
-
-//============================================TOOLBAR FUNCTIONS==========================================================================
 static void SearchOnCodeEditor();
 
 const char* ppnames[] = { "NULL", "PM_REMOVE",
