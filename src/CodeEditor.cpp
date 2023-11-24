@@ -101,15 +101,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
 //======================================Load Icons/Images/Fonts==========================================================================================================
-    static ImageData Compile_image;
-    static ImageData Verify_image;
- 
-    static ImageData Folder_image;
-    static ImageData Debug_image;
-    static ImageData Robot_image;
-    static ImageData Search_image;
-    static ImageData Settings_image;
-
+    
     IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/ON/Upload.png", &Compile_image.ON_textureID, &Compile_image.width, &Compile_image.height));
     IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/OFF/Upload.png", &Compile_image.OFF_textureID));
 
@@ -130,6 +122,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     //IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/ON/Settings.png", &Settings_image.ON_textureID, &Settings_image.width, &Settings_image.height));
     //IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/OFF/Settings.png", &Settings_image.OFF_textureID));
+
+    IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/process-error.png", &ErroSymbol.textureID, &ErroSymbol.width, &ErroSymbol.height));
+
 
     DefaultFont         = io.Fonts->AddFontFromFileTTF(Consolas_Font     , 14); //default
     CodeEditorFont      = io.Fonts->AddFontFromFileTTF(DroidSansMono_Font, 24);
@@ -735,7 +730,8 @@ void ImplementDirectoryNode()
 			
 			ArmSimPro::FileDialog::Instance().Close();
 		}
-        
+
+//=========================================================================Create New Project============================================================================================================================================================== 
         ImGui::Spacing();
         ImGui::TextWrapped("\nYou can create a new PlatformIo based Project or explore the examples of ArmSim Kit\n\n");
         if(ImGui::Button("Create New Project", ImVec2(width - 30, 0)))
@@ -748,12 +744,17 @@ void ImplementDirectoryNode()
         if(ImGui::BeginPopupModal("Project Wizard", &is_Open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
         {   
             ImGui::TextWrapped("This wizard allows you to create new PlatformIO project. In the last case, you need to uncheck \"Use default location\" and specify path to chosen directory");
-            
+            static DirStatus DirCreateStatus = DirStatus_None;
+
+            if(DirCreateStatus == DirStatus_AlreadyExist || DirCreateStatus == DirStatus_FailedToCreate || DirCreateStatus == DirStatus_NameNotSpecified){
+                ImGui::SetCursorPos(ImVec2(185, 110));
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(255,0,0,255));
+                ImGui::Text(DirCreateLog[DirCreateStatus]);
+                ImGui::PopStyleColor();
+            }
             ImGui::SetCursorPos(ImVec2(60, 130));
             ImGui::Text("Project Name:"); ImGui::SameLine();
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(240,0,0,255));
             ImGui::InputText("##Project Name", &Project_Name);
-            ImGui::PopStyleColor();
 
             ImGui::SetCursorPos(ImVec2(97, 180));
             ImGui::Text("Location:"); ImGui::SameLine();
@@ -775,7 +776,7 @@ void ImplementDirectoryNode()
 
             ImGui::Checkbox("Use default Location", &UseDefault_Location);
             if(UseDefault_Location)
-                NewProjectDir = std::filesystem::current_path();
+                NewProjectDir = std::filesystem::path(getenv("USERPROFILE")) / "Documents" / "ArmSimPro Projects";
 
             ImGui::SetCursorPosY(240);
             ImGui::Separator();
@@ -791,16 +792,25 @@ void ImplementDirectoryNode()
             ImGui::Dummy(ImVec2(10, 0)); ImGui::SameLine();
             if(ImGui::Button("Finish"))
             {
-                ImGui::CloseCurrentPopup();
+                if(Project_Name.empty())
+                    DirCreateStatus = DirStatus_NameNotSpecified;
+
+                if(UseDefault_Location && !Project_Name.empty())
+                {   
+                    if((DirCreateStatus = CreatesDefaultProjectDirectory(NewProjectDir, Project_Name.c_str(), &SelectedProjectPath)) == DirStatus_Created)
+                        ImGui::CloseCurrentPopup();
+                }
+                else if(!Project_Name.empty())
+                    if((DirCreateStatus = CreateProjectDirectory(NewProjectDir, Project_Name.c_str(), &SelectedProjectPath)) == DirStatus_Created)
+                        ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
         }
         ImGui::PopFont();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
-        
     }
-
+//========================================================================================================================================================================
     if(!SelectedProjectPath.empty() && project_root_node.FileName.empty())
     {   
         //Selected_Directory = rootPath.filename().u8string();

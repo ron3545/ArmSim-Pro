@@ -44,6 +44,17 @@ static bool UseDefault_Location = true;
 
 const RGBA bg_col = RGBA(24, 24, 24, 255);
 const RGBA highlighter_col = RGBA(0, 120, 212, 255);
+
+static ImageData Compile_image;
+static ImageData Verify_image;
+
+static ImageData Folder_image;
+static ImageData Debug_image;
+static ImageData Robot_image;
+static ImageData Search_image;
+static ImageData Settings_image;
+
+static SingleImageData ErroSymbol; 
 //==========================================================================================================================================
 bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
@@ -102,3 +113,39 @@ const char* idecls[] =
     "ID3D11Device", "ID3D11DeviceContext", "ID3D11Buffer", "ID3D11Buffer", "ID3D10Blob", "ID3D11VertexShader", "ID3D11InputLayout", "ID3D11Buffer",
     "ID3D10Blob", "ID3D11PixelShader", "ID3D11SamplerState", "ID3D11ShaderResourceView", "ID3D11RasterizerState", "ID3D11BlendState", "ID3D11DepthStencilState",
     "IDXGISwapChain", "ID3D11RenderTargetView", "ID3D11Texture2D", "class TextEditor" };
+
+//===================================================HELPER FUNCTIONS=========================================================================================================
+
+enum DirStatus
+{
+    DirStatus_None,
+    DirStatus_AlreadyExist,
+    DirStatus_Created,
+    DirStatus_FailedToCreate,
+    DirStatus_NameNotSpecified
+};
+const char* DirCreateLog[] = {"None","Project already exist.", "Project Created.", "Failed To create project.", "Project name not specified."};
+
+static DirStatus CreateProjectDirectory(const std::filesystem::path& path, const char* ProjectName, std::filesystem::path* out)
+{
+    *out = path / ProjectName;
+    if(std::filesystem::exists(*out))
+        return DirStatus_AlreadyExist;
+    
+    //Create Directory
+    if(std::filesystem::create_directory(*out))
+        return DirStatus_Created;
+    return DirStatus_FailedToCreate;
+}
+
+static DirStatus CreatesDefaultProjectDirectory(const std::filesystem::path& NewProjectPath, const char* ProjectName, std::filesystem::path* output_path)
+{
+    if(!std::filesystem::exists(NewProjectPath))
+    {   
+        //Creates "ArmSimPro Projects" folder and then create a named project directory of the user
+        if(std::filesystem::create_directory(NewProjectPath))
+            return CreateProjectDirectory(NewProjectPath, ProjectName, output_path);
+        return DirStatus_FailedToCreate;
+    }
+    return CreateProjectDirectory(NewProjectPath, ProjectName, output_path);
+}
