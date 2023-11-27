@@ -8,11 +8,6 @@
 
 #include "../imgui/imgui_internal.h"
 
-#include <mutex>
-#include <thread>
-#include <numeric>
-#include <future>
-
 namespace  ArmSimPro
 {
     // TODO
@@ -31,37 +26,7 @@ namespace  ArmSimPro
     }
 
     TextEditor::TextEditor()
-        : mLineSpacing(1.0f)
-        , mUndoIndex(0)
-        , mTabSize(4)
-        , mOverwrite(false)
-        , mReadOnly(false)
-        , mWithinRender(false)
-        , mScrollToCursor(false)
-        , mScrollToTop(false)
-        , mTextChanged(false)
-        , mColorizerEnabled(true)
-        , mTextStart(20.0f)
-        , mLeftMargin(10)
-        , mCursorPositionChanged(false)
-        , mColorRangeMin(0)
-        , mColorRangeMax(0)
-        , mSelectionMode(SelectionMode::Normal)
-        , mCheckComments(true)
-        , mLastClick(-1.0f)
-        , mHandleKeyboardInputs(true)
-        , mHandleMouseInputs(true)
-        , mIgnoreImGuiChild(false)
-        , mShowWhitespaces(true)
-        , mStartTime(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-    {
-        SetPalette(GetDarkPalette());
-        SetLanguageDefinition(LanguageDefinition::CPlusPlus());
-        mLines.push_back(Line());
-    }
-
-    TextEditor::TextEditor(const ImVec4& window_bg_col)
-        : _window_bg_col(window_bg_col)
+        : _window_bg_col(ImVec4(0,0,0,1))
         , mLineSpacing(1.0f)
         , mUndoIndex(0)
         , mTabSize(4)
@@ -91,13 +56,53 @@ namespace  ArmSimPro
         mLines.push_back(Line());
     }
 
+    TextEditor::TextEditor(const std::string& Title, const ImVec4& window_bg_col)
+        : aTitle(Title)
+        , _window_bg_col(window_bg_col)
+        , mLineSpacing(1.0f)
+        , mUndoIndex(0)
+        , mTabSize(4)
+        , mOverwrite(false)
+        , mReadOnly(false)
+        , mWithinRender(false)
+        , mScrollToCursor(false)
+        , mScrollToTop(false)
+        , mTextChanged(false)
+        , mColorizerEnabled(true)
+        , mTextStart(20.0f)
+        , mLeftMargin(10)
+        , mCursorPositionChanged(false)
+        , mColorRangeMin(0)
+        , mColorRangeMax(0)
+        , mSelectionMode(SelectionMode::Normal)
+        , mCheckComments(true)
+        , mLastClick(-1.0f)
+        , mHandleKeyboardInputs(true)
+        , mHandleMouseInputs(true)
+        , mIgnoreImGuiChild(false)
+        , mShowWhitespaces(true)
+        , mStartTime(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
+    {
+        SetPalette(GetDarkPalette());
+        SetLanguageDefinition(LanguageDefinition::CPlusPlus());
+        mLines.push_back(Line());
+    }
+
+    static std::mutex m_regexList;
+    void TextEditor::SetRegexList(const std::string& first, const PaletteIndex& second)
+    {
+        std::lock_guard<std::mutex> lock_regex_list(m_regexList);
+
+        mRegexList.push_back(std::make_pair(std::regex(first, std::regex_constants::optimize), second));
+    }
+
     void TextEditor::SetLanguageDefinition(const LanguageDefinition & aLanguageDef)
     {
         mLanguageDefinition = aLanguageDef;
         mRegexList.clear();
 
         for (auto& r : mLanguageDefinition.mTokenRegexStrings)
-            mRegexList.push_back(std::make_pair(std::regex(r.first, std::regex_constants::optimize), r.second));
+            std::future<void> future = std::async(std::launch::async, &TextEditor::SetRegexList, this, r.first, r.second);
 
         Colorize();
     }
@@ -795,12 +800,14 @@ namespace  ArmSimPro
             else if (!IsReadOnly() && !ctrl && !alt && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Tab)))
                 EnterCharacter('\t', shift);
 
+            //TEXT ENTERING
             if (!IsReadOnly() && !io.InputQueueCharacters.empty())
             {
                 for (int i = 0; i < io.InputQueueCharacters.Size; i++)
-                {
+                {   
                     auto c = io.InputQueueCharacters[i];
                     if (c != 0 && (c == '\n' || c >= 32))
+                        //std::future<void> future = std::async(std::launch::async, &TextEditor::EnterCharacter, this, c, shift);
                         EnterCharacter(c, shift);
                 }
                 io.InputQueueCharacters.resize(0);
@@ -827,7 +834,6 @@ namespace  ArmSimPro
                 /*
                 Left mouse button triple click
                 */
-
                 if (tripleClick)
                 {
                     if (!ctrl)
@@ -843,7 +849,6 @@ namespace  ArmSimPro
                 /*
                 Left mouse button double click
                 */
-
                 else if (doubleClick)
                 {
                     if (!ctrl)
@@ -883,9 +888,209 @@ namespace  ArmSimPro
             }
         }
     }
-                                                 
-    //static std::mutex s_mainRender;
-    void TextEditor::Render()
+
+    static std::mutex m_mainRender;
+    void TextEditor::RenderMainEditor(ImDrawList* drawList, int lineNo, ImVec2& cursorScreenPos, ImVec2& contentSize, float *longest, float scrollX, float spaceSize, char *buf, size_t buf_size)
+    {
+        std::lock_guard<std::mutex> lock_editor_render(m_mainRender);
+
+        ImVec2 lineStartScreenPos = ImVec2(cursorScreenPos.x, cursorScreenPos.y + lineNo * mCharAdvance.y);
+        ImVec2 textScreenPos = ImVec2(lineStartScreenPos.x + mTextStart, lineStartScreenPos.y);
+
+        auto& line = mLines[lineNo];
+        *longest = std::max(mTextStart + TextDistanceToLineStart(Coordinates(lineNo, GetLineMaxColumn(lineNo))), *longest);
+        auto columnNo = 0;
+        Coordinates lineStartCoord(lineNo, 0);
+        Coordinates lineEndCoord(lineNo, GetLineMaxColumn(lineNo));
+
+        // Draw selection for the current line
+        float sstart = -1.0f;
+        float ssend = -1.0f;
+
+        assert(mState.mSelectionStart <= mState.mSelectionEnd);
+        if (mState.mSelectionStart <= lineEndCoord)
+            sstart = mState.mSelectionStart > lineStartCoord ? TextDistanceToLineStart(mState.mSelectionStart) : 0.0f;
+        if (mState.mSelectionEnd > lineStartCoord)
+            ssend = TextDistanceToLineStart(mState.mSelectionEnd < lineEndCoord ? mState.mSelectionEnd : lineEndCoord);
+
+        if (mState.mSelectionEnd.mLine > lineNo)
+            ssend += mCharAdvance.x;
+
+        if (sstart != -1 && ssend != -1 && sstart < ssend)
+        {
+            ImVec2 vstart(lineStartScreenPos.x + mTextStart + sstart, lineStartScreenPos.y);
+            ImVec2 vend(lineStartScreenPos.x + mTextStart + ssend, lineStartScreenPos.y + mCharAdvance.y);
+            drawList->AddRectFilled(vstart, vend, mPalette[(int)PaletteIndex::Selection]);
+        }
+
+        // Draw breakpoints
+        auto start = ImVec2(lineStartScreenPos.x + scrollX, lineStartScreenPos.y);
+
+        if (mBreakpoints.count(lineNo + 1) != 0)
+        {
+            auto end = ImVec2(lineStartScreenPos.x + contentSize.x + 2.0f * scrollX, lineStartScreenPos.y + mCharAdvance.y);
+            drawList->AddRectFilled(start, end, mPalette[(int)PaletteIndex::Breakpoint]);
+        }
+
+        // Draw error markers
+        auto errorIt = mErrorMarkers.find(lineNo + 1);
+        if (errorIt != mErrorMarkers.end())
+        {
+            auto end = ImVec2(lineStartScreenPos.x + contentSize.x + 2.0f * scrollX, lineStartScreenPos.y + mCharAdvance.y);
+            drawList->AddRectFilled(start, end, mPalette[(int)PaletteIndex::ErrorMarker]);
+
+            if (ImGui::IsMouseHoveringRect(lineStartScreenPos, end))
+            {
+                ImGui::BeginTooltip();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
+                ImGui::Text("Error at line %d:", errorIt->first);
+                ImGui::PopStyleColor();
+                ImGui::Separator();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.2f, 1.0f));
+                ImGui::Text("%s", errorIt->second.c_str());
+                ImGui::PopStyleColor();
+                ImGui::EndTooltip();
+            }
+        }
+
+        // Draw line number (right aligned)
+        snprintf(buf, buf_size, "%d  ", lineNo + 1);
+
+        auto lineNoWidth = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf, nullptr, nullptr).x;
+        drawList->AddText(ImVec2(lineStartScreenPos.x + mTextStart - lineNoWidth, lineStartScreenPos.y), mPalette[(int)PaletteIndex::LineNumber], buf);
+
+        if (mState.mCursorPosition.mLine == lineNo)
+        {
+            auto focused = ImGui::IsWindowFocused();
+
+            static std::mutex cursor;
+            std::future<void> future_res = std::async(std::launch::async, [&](){
+                std::lock_guard<std::mutex> lock(cursor);
+
+                // Highlight the current line (where the cursor is)
+                if (!HasSelection())
+                {
+                    auto end = ImVec2(start.x + contentSize.x + scrollX, start.y + mCharAdvance.y);
+                    drawList->AddRectFilled(start, end, mPalette[(int)(focused ? PaletteIndex::CurrentLineFill : PaletteIndex::CurrentLineFillInactive)]);
+                    drawList->AddRect(start, end, mPalette[(int)PaletteIndex::CurrentLineEdge], 1.0f);
+                }
+
+                // Render the cursor
+                if (focused)
+                {
+                    auto timeEnd = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                    auto elapsed = timeEnd - mStartTime;
+                    if (elapsed > 300)
+                    {
+                        float width = 1.0f;
+                        auto cindex = GetCharacterIndex(mState.mCursorPosition);
+                        float cx = TextDistanceToLineStart(mState.mCursorPosition);
+
+                        if (mOverwrite && cindex < (int)line.size())
+                        {
+                            auto c = line[cindex].mChar;
+                            if (c == '\t')
+                            {
+                                auto x = (1.0f + std::floor((1.0f + cx) / (float(mTabSize) * spaceSize))) * (float(mTabSize) * spaceSize);
+                                width = x - cx;
+                            }
+                            else
+                            {
+                                char buf2[2];
+                                buf2[0] = line[cindex].mChar;
+                                buf2[1] = '\0';
+                                width = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf2).x;
+                            }
+                        }
+                        ImVec2 cstart(textScreenPos.x + cx, lineStartScreenPos.y);
+                        ImVec2 cend(textScreenPos.x + cx + width, lineStartScreenPos.y + mCharAdvance.y);
+                        drawList->AddRectFilled(cstart, cend, mPalette[(int)PaletteIndex::Cursor]);
+                        if (elapsed > 800)
+                            mStartTime = timeEnd;
+                    }
+                }
+            });
+        }
+
+        // Render colorized text
+        auto prevColor = line.empty() ? mPalette[(int)PaletteIndex::Default] : GetGlyphColor(line[0]);
+        ImVec2 bufferOffset;
+
+        for (int i = 0; i < line.size();)
+        {
+            auto& glyph = line[i];
+            auto color = GetGlyphColor(glyph);
+            
+            // DRAWS THE TEXTS
+            if ((color != prevColor || glyph.mChar == '\t' || glyph.mChar == ' ') && !mLineBuffer.empty())
+            {
+                const ImVec2 newOffset(textScreenPos.x + bufferOffset.x, textScreenPos.y + bufferOffset.y);
+                drawList->AddText(newOffset, prevColor, mLineBuffer.c_str());
+                auto textSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, mLineBuffer.c_str(), nullptr, nullptr);
+                bufferOffset.x += textSize.x;
+                mLineBuffer.clear();
+            }
+            prevColor = color;
+
+            switch(glyph.mChar)
+            {
+                case '\t': //Draws Tab 
+                {
+                    auto oldX = bufferOffset.x;
+                    bufferOffset.x = (1.0f + std::floor((1.0f + bufferOffset.x) / (float(mTabSize) * spaceSize))) * (float(mTabSize) * spaceSize);
+                    ++i;
+
+                    if (mShowWhitespaces)
+                    {
+                        //const auto s = ImGui::GetFontSize();
+                        //const auto x1 = textScreenPos.x + oldX + 1.0f;
+                        //const auto x2 = textScreenPos.x + bufferOffset.x - 1.0f;
+                        //const auto y = textScreenPos.y + bufferOffset.y + s * 0.5f;
+                        //const ImVec2 p1(x1, y);
+                        //const ImVec2 p2(x2, y);
+                        //const ImVec2 p3(x2 - s * 0.2f, y - s * 0.2f);
+                        //const ImVec2 p4(x2 - s * 0.2f, y + s * 0.2f);
+                        //drawList->AddLine(p1, p2, 0x90909090);
+                        //drawList->AddLine(p2, p3, 0x90909090);
+                        //drawList->AddLine(p2, p4, 0x90909090);
+                                                            
+                    }
+                } break;
+
+                //Draw Spacing
+                case ' ':
+                {
+                    if (mShowWhitespaces)
+                    {
+                        //const auto s = ImGui::GetFontSize();
+                        //const auto x = textScreenPos.x + bufferOffset.x + spaceSize * 0.5f;
+                        //const auto y = textScreenPos.y + bufferOffset.y + s * 0.5f;
+                        //drawList->AddCircleFilled(ImVec2(x, y), 1.5f, 0x80808080, 4);
+                    }
+                    bufferOffset.x += spaceSize;
+                    i++;
+                } break;
+
+                default:
+                {
+                    auto l = UTF8CharLength(glyph.mChar);
+                    static std::mutex buff_mutex;
+                    while (l-- > 0)
+                        mLineBuffer.push_back(line[i++].mChar);
+                } break;
+            }
+            ++columnNo;
+        }
+
+        if (!mLineBuffer.empty())
+        {
+            const ImVec2 newOffset(textScreenPos.x + bufferOffset.x, textScreenPos.y + bufferOffset.y);
+            drawList->AddText(newOffset, prevColor, mLineBuffer.c_str());
+            mLineBuffer.clear();
+        }
+    }
+
+    void TextEditor::RenderEditor()
     {   
         //std::lock_guard<std::mutex> lock(s_mainRender);
         /* Compute mCharAdvance regarding to scaled font size (Ctrl + mouse wheel)*/
@@ -931,190 +1136,8 @@ namespace  ArmSimPro
 
             while (lineNo <= lineMax)
             {
-                ImVec2 lineStartScreenPos = ImVec2(cursorScreenPos.x, cursorScreenPos.y + lineNo * mCharAdvance.y);
-                ImVec2 textScreenPos = ImVec2(lineStartScreenPos.x + mTextStart, lineStartScreenPos.y);
-
-                auto& line = mLines[lineNo];
-                longest = std::max(mTextStart + TextDistanceToLineStart(Coordinates(lineNo, GetLineMaxColumn(lineNo))), longest);
-                auto columnNo = 0;
-                Coordinates lineStartCoord(lineNo, 0);
-                Coordinates lineEndCoord(lineNo, GetLineMaxColumn(lineNo));
-
-                // Draw selection for the current line
-                float sstart = -1.0f;
-                float ssend = -1.0f;
-
-                assert(mState.mSelectionStart <= mState.mSelectionEnd);
-                if (mState.mSelectionStart <= lineEndCoord)
-                    sstart = mState.mSelectionStart > lineStartCoord ? TextDistanceToLineStart(mState.mSelectionStart) : 0.0f;
-                if (mState.mSelectionEnd > lineStartCoord)
-                    ssend = TextDistanceToLineStart(mState.mSelectionEnd < lineEndCoord ? mState.mSelectionEnd : lineEndCoord);
-
-                if (mState.mSelectionEnd.mLine > lineNo)
-                    ssend += mCharAdvance.x;
-
-                if (sstart != -1 && ssend != -1 && sstart < ssend)
-                {
-                    ImVec2 vstart(lineStartScreenPos.x + mTextStart + sstart, lineStartScreenPos.y);
-                    ImVec2 vend(lineStartScreenPos.x + mTextStart + ssend, lineStartScreenPos.y + mCharAdvance.y);
-                    drawList->AddRectFilled(vstart, vend, mPalette[(int)PaletteIndex::Selection]);
-                }
-
-                // Draw breakpoints
-                auto start = ImVec2(lineStartScreenPos.x + scrollX, lineStartScreenPos.y);
-
-                if (mBreakpoints.count(lineNo + 1) != 0)
-                {
-                    auto end = ImVec2(lineStartScreenPos.x + contentSize.x + 2.0f * scrollX, lineStartScreenPos.y + mCharAdvance.y);
-                    drawList->AddRectFilled(start, end, mPalette[(int)PaletteIndex::Breakpoint]);
-                }
-
-                // Draw error markers
-                auto errorIt = mErrorMarkers.find(lineNo + 1);
-                if (errorIt != mErrorMarkers.end())
-                {
-                    auto end = ImVec2(lineStartScreenPos.x + contentSize.x + 2.0f * scrollX, lineStartScreenPos.y + mCharAdvance.y);
-                    drawList->AddRectFilled(start, end, mPalette[(int)PaletteIndex::ErrorMarker]);
-
-                    if (ImGui::IsMouseHoveringRect(lineStartScreenPos, end))
-                    {
-                        ImGui::BeginTooltip();
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
-                        ImGui::Text("Error at line %d:", errorIt->first);
-                        ImGui::PopStyleColor();
-                        ImGui::Separator();
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.2f, 1.0f));
-                        ImGui::Text("%s", errorIt->second.c_str());
-                        ImGui::PopStyleColor();
-                        ImGui::EndTooltip();
-                    }
-                }
-
-                // Draw line number (right aligned)
-                snprintf(buf, 16, "%d  ", lineNo + 1);
-
-                auto lineNoWidth = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf, nullptr, nullptr).x;
-                drawList->AddText(ImVec2(lineStartScreenPos.x + mTextStart - lineNoWidth, lineStartScreenPos.y), mPalette[(int)PaletteIndex::LineNumber], buf);
-
-                if (mState.mCursorPosition.mLine == lineNo)
-                {
-                    auto focused = ImGui::IsWindowFocused();
-
-                    // Highlight the current line (where the cursor is)
-                    if (!HasSelection())
-                    {
-                        auto end = ImVec2(start.x + contentSize.x + scrollX, start.y + mCharAdvance.y);
-                        drawList->AddRectFilled(start, end, mPalette[(int)(focused ? PaletteIndex::CurrentLineFill : PaletteIndex::CurrentLineFillInactive)]);
-                        drawList->AddRect(start, end, mPalette[(int)PaletteIndex::CurrentLineEdge], 1.0f);
-                    }
-
-                    // Render the cursor
-                    if (focused)
-                    {
-                        auto timeEnd = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-                        auto elapsed = timeEnd - mStartTime;
-                        if (elapsed > 400)
-                        {
-                            float width = 1.0f;
-                            auto cindex = GetCharacterIndex(mState.mCursorPosition);
-                            float cx = TextDistanceToLineStart(mState.mCursorPosition);
-
-                            if (mOverwrite && cindex < (int)line.size())
-                            {
-                                auto c = line[cindex].mChar;
-                                if (c == '\t')
-                                {
-                                    auto x = (1.0f + std::floor((1.0f + cx) / (float(mTabSize) * spaceSize))) * (float(mTabSize) * spaceSize);
-                                    width = x - cx;
-                                }
-                                else
-                                {
-                                    char buf2[2];
-                                    buf2[0] = line[cindex].mChar;
-                                    buf2[1] = '\0';
-                                    width = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf2).x;
-                                }
-                            }
-                            ImVec2 cstart(textScreenPos.x + cx, lineStartScreenPos.y);
-                            ImVec2 cend(textScreenPos.x + cx + width, lineStartScreenPos.y + mCharAdvance.y);
-                            drawList->AddRectFilled(cstart, cend, mPalette[(int)PaletteIndex::Cursor]);
-                            if (elapsed > 800)
-                                mStartTime = timeEnd;
-                        }
-                    }
-                }
-
-                // Render colorized text
-                auto prevColor = line.empty() ? mPalette[(int)PaletteIndex::Default] : GetGlyphColor(line[0]);
-                ImVec2 bufferOffset;
-
-                for (int i = 0; i < line.size();)
-                {
-                    auto& glyph = line[i];
-                    auto color = GetGlyphColor(glyph);
-
-                    if ((color != prevColor || glyph.mChar == '\t' || glyph.mChar == ' ') && !mLineBuffer.empty())
-                    {
-                        const ImVec2 newOffset(textScreenPos.x + bufferOffset.x, textScreenPos.y + bufferOffset.y);
-                        drawList->AddText(newOffset, prevColor, mLineBuffer.c_str());
-                        auto textSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, mLineBuffer.c_str(), nullptr, nullptr);
-                        bufferOffset.x += textSize.x;
-                        mLineBuffer.clear();
-                    }
-                    prevColor = color;
-
-                    //Draws Tab 
-                    if (glyph.mChar == '\t')
-                    {
-                        auto oldX = bufferOffset.x;
-                        bufferOffset.x = (1.0f + std::floor((1.0f + bufferOffset.x) / (float(mTabSize) * spaceSize))) * (float(mTabSize) * spaceSize);
-                        ++i;
-
-                        if (mShowWhitespaces)
-                        {
-                            //const auto s = ImGui::GetFontSize();
-                            //const auto x1 = textScreenPos.x + oldX + 1.0f;
-                            //const auto x2 = textScreenPos.x + bufferOffset.x - 1.0f;
-                            //const auto y = textScreenPos.y + bufferOffset.y + s * 0.5f;
-                            //const ImVec2 p1(x1, y);
-                            //const ImVec2 p2(x2, y);
-                            //const ImVec2 p3(x2 - s * 0.2f, y - s * 0.2f);
-                            //const ImVec2 p4(x2 - s * 0.2f, y + s * 0.2f);
-                            //drawList->AddLine(p1, p2, 0x90909090);
-                            //drawList->AddLine(p2, p3, 0x90909090);
-                            //drawList->AddLine(p2, p4, 0x90909090);
-                                                             
-                        }
-                    }
-                    //Draw Spacing
-                    else if (glyph.mChar == ' ')
-                    {
-                        if (mShowWhitespaces)
-                        {
-                            //const auto s = ImGui::GetFontSize();
-                            //const auto x = textScreenPos.x + bufferOffset.x + spaceSize * 0.5f;
-                            //const auto y = textScreenPos.y + bufferOffset.y + s * 0.5f;
-                            //drawList->AddCircleFilled(ImVec2(x, y), 1.5f, 0x80808080, 4);
-                        }
-                        bufferOffset.x += spaceSize;
-                        i++;
-                    }
-                    else
-                    {
-                        auto l = UTF8CharLength(glyph.mChar);
-                        while (l-- > 0)
-                            mLineBuffer.push_back(line[i++].mChar);
-                    }
-                    ++columnNo;
-                }
-
-                if (!mLineBuffer.empty())
-                {
-                    const ImVec2 newOffset(textScreenPos.x + bufferOffset.x, textScreenPos.y + bufferOffset.y);
-                    drawList->AddText(newOffset, prevColor, mLineBuffer.c_str());
-                    mLineBuffer.clear();
-                }
-
+                std::future<void> future_result = std::async(std::launch::async, &TextEditor::RenderMainEditor, this, drawList, lineNo, cursorScreenPos, contentSize, &longest, scrollX, spaceSize, buf, 16);
+                //RenderMainEditor(drawList, lineNo, cursorScreenPos, contentSize, &longest, scrollX, spaceSize, buf, 16);
                 ++lineNo;
             }
 
@@ -1144,8 +1167,6 @@ namespace  ArmSimPro
                 }
             }
         }
-
-
         ImGui::Dummy(ImVec2((longest + 2), mLines.size() * mCharAdvance.y));
 
         if (mScrollToCursor)
@@ -1156,7 +1177,7 @@ namespace  ArmSimPro
         }
     }
 
-    void TextEditor::RenderChild(const char* aTitle, const ImVec2& aSize, bool aBorder)
+    void TextEditor::RenderChild(const ImVec2& aSize, bool aBorder)
     {   
         mWithinRender = true;
         mTextChanged = false;
@@ -1166,7 +1187,7 @@ namespace  ArmSimPro
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         if (!mIgnoreImGuiChild)
-            ImGui::BeginChild(aTitle, aSize, aBorder, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar | ImGuiWindowFlags_NoMove);
+            ImGui::BeginChild(aTitle.c_str(), aSize, aBorder, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar | ImGuiWindowFlags_NoMove);
 
         if (mHandleKeyboardInputs)
         {
@@ -1178,8 +1199,8 @@ namespace  ArmSimPro
             HandleMouseInputs();
 
         ColorizeInternal();
-        //std::async(std::launch::async, [&](){Render();});
-        Render();
+        //std::async(std::launch::async, [&](){RenderEditor();});
+        RenderEditor();
 
         if (mHandleKeyboardInputs)
             ImGui::PopAllowKeyboardFocus();
@@ -1193,47 +1214,46 @@ namespace  ArmSimPro
         mWithinRender = false;
     }
 
-    static std::mutex s_rendermutex;
-    void TextEditor::Render(const char* aTitle, const ImVec2& aSize, bool aBorder)
+    void TextEditor::Render(ImFont* font, bool *show_exit_btn, const ImVec2& aSize, bool aBorder)
     {   
-        std::lock_guard<std::mutex> lock(s_rendermutex);
-        ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
-        window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus; 
-        
         ImGuiWindowClass window_class;
         window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_CentralNode; 
         ImGui::SetNextWindowClass(&window_class);
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 0.0f));
+        //ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 0.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 0.0f);
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, _window_bg_col);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(mPalette[(int)PaletteIndex::Background]));
         ImGui::PushStyleColor(ImGuiCol_TitleBgActive, _window_bg_col);
+        ImGui::PushStyleColor(ImGuiCol_Tab, _window_bg_col);
         ImGui::PushStyleColor(ImGuiCol_TitleBg, _window_bg_col);
-        ImGui::Begin(aTitle);
+
+        ImGui::PushFont(font);
+        ImGui::Begin(aTitle.c_str(), show_exit_btn);
         {
-            RenderChild(aTitle, aSize, aBorder);
+            RenderChild(aSize, aBorder);
         }
-        ImGui::PopStyleColor(3);
+        ImGui::PopFont();
+        ImGui::PopStyleColor(4);
         ImGui::End();
-        ImGui::PopStyleVar(3);
+        ImGui::PopStyleVar(2);
     }
 
     void TextEditor::SetText(const std::string & aText)
-    {
+    {   
+        
         mLines.clear();
         mLines.emplace_back(Line());
-        for (auto chr : aText)
-        {
+        for(auto& chr : aText){
             if (chr == '\r')
             {
                 // ignore the carriage return character
             }
             else if (chr == '\n')
-                mLines.emplace_back(Line());
+                mLines.emplace_back(TextEditor::Line());
             else
             {
-                mLines.back().emplace_back(Glyph(chr, PaletteIndex::Default));
+                mLines.back().emplace_back(TextEditor::Glyph(chr, TextEditor::PaletteIndex::Default));
             }
         }
 
@@ -1244,6 +1264,13 @@ namespace  ArmSimPro
         mUndoIndex = 0;
 
         Colorize();
+    }
+
+    static std::mutex mutex_set_mLines;
+    static void SetTextMLines(TextEditor::Lines& mLines, size_t i, const TextEditor::Char& aLines)
+    {
+        std::lock_guard<std::mutex> lock_SetTexMLines(mutex_set_mLines);
+        mLines[i].emplace_back(TextEditor::Glyph(aLines, TextEditor::PaletteIndex::Default));
     }
 
     void TextEditor::SetTextLines(const std::vector<std::string> & aLines)
@@ -1264,7 +1291,8 @@ namespace  ArmSimPro
 
                 mLines[i].reserve(aLine.size());
                 for (size_t j = 0; j < aLine.size(); ++j)
-                    mLines[i].emplace_back(Glyph(aLine[j], PaletteIndex::Default));
+                    //mLines[i].emplace_back(Glyph(aLine[j], PaletteIndex::Default));
+                    std::future<void> mLine_future = std::async(std::launch::async, SetTextMLines, mLines, i, aLine[j]);
             }
         }
 
@@ -1280,16 +1308,13 @@ namespace  ArmSimPro
     void TextEditor::EnterCharacter(ImWchar aChar, bool aShift)
     {
         assert(!mReadOnly);
-
         UndoRecord u;
-
         u.mBefore = mState;
 
         if (HasSelection())
         {
             if (aChar == '\t' && mState.mSelectionStart.mLine != mState.mSelectionEnd.mLine)
             {
-
                 auto start = mState.mSelectionStart;
                 auto end = mState.mSelectionEnd;
                 auto originalEnd = end;
@@ -1320,25 +1345,36 @@ namespace  ArmSimPro
                     {
                         if (!line.empty())
                         {
-                            if (line.front().mChar == '\t')
+                            switch(line.front().mChar)
                             {
-                                line.erase(line.begin());
-                                modified = true;
-                            }
-                            else
-                            {
-                                for (int j = 0; j < mTabSize && !line.empty() && line.front().mChar == ' '; j++)
+                            case '\t':
                                 {
                                     line.erase(line.begin());
                                     modified = true;
+                                }break;
+                            default:
+                                {
+                                    static std::mutex line_erase;
+                                    std::future<void> line_erase_future = std::async(std::launch::async, [&](){
+                                        std::lock_guard<std::mutex> lock_line_erase(line_erase);
+                                        for (int j = 0; j < mTabSize && !line.empty() && line.front().mChar == ' '; j++)
+                                        {
+                                            line.erase(line.begin());
+                                            modified = true;
+                                        }
+                                    });
                                 }
                             }
                         }
                     }
                     else
                     {
-                        line.insert(line.begin(), Glyph('\t', TextEditor::PaletteIndex::Background));
-                        modified = true;
+                        static std::mutex line_insert;
+                        std::future<void> line_insertfuture = std::async(std::launch::async, [&](){
+                            std::lock_guard<std::mutex> lock_line_insert(line_insert);
+                            line.insert(line.begin(), Glyph('\t', TextEditor::PaletteIndex::Background));
+                            modified = true;
+                        });
                     }
                 }
                 
@@ -1394,9 +1430,14 @@ namespace  ArmSimPro
             auto& line = mLines[coord.mLine];
             auto& newLine = mLines[coord.mLine + 1];
 
-            if (mLanguageDefinition.mAutoIndentation)
-                for (size_t it = 0; it < line.size() && isascii(line[it].mChar) && isblank(line[it].mChar); ++it)
-                    newLine.push_back(line[it]);
+            if (mLanguageDefinition.mAutoIndentation){
+                static std::mutex line_insert;
+                std::future<void> line_insert_future = std::async(std::launch::async, [&](){
+                    std::lock_guard<std::mutex> lock_line_insert(line_insert);
+                    for (size_t it = 0; it < line.size() && isascii(line[it].mChar) && isblank(line[it].mChar); ++it)
+                        newLine.push_back(line[it]);
+                });
+            }
 
             const size_t whitespaceSize = newLine.size();
             auto cindex = GetCharacterIndex(coord);
@@ -1423,16 +1464,21 @@ namespace  ArmSimPro
                     u.mRemovedStart = mState.mCursorPosition;
                     u.mRemovedEnd = Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex + d));
 
-                    while (d-- > 0 && cindex < (int)line.size())
-                    {
-                        u.mRemoved += line[cindex].mChar;
-                        line.erase(line.begin() + cindex);
-                    }
+                    static std::mutex line_erase;
+                    std::future<void> line_insert_future = std::async(std::launch::async, [&](){
+                        std::lock_guard<std::mutex> lock_line_erase(line_erase);
+                        
+                        while (d-- > 0 && cindex < (int)line.size())
+                        {
+                            u.mRemoved += line[cindex].mChar;
+                            line.erase(line.begin() + cindex);
+                        }
+                    });
                 }
+
                 for (int i = 0; i < 2; i++, ++cindex)
                     line.insert(line.begin() + cindex, Glyph(buf[i], PaletteIndex::Default));
                 u.mAdded = buf;
-
                 SetCursorPosition(Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex )));
             }
         }
@@ -1453,11 +1499,16 @@ namespace  ArmSimPro
                     u.mRemovedStart = mState.mCursorPosition;
                     u.mRemovedEnd = Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex + d));
 
-                    while (d-- > 0 && cindex < (int)line.size())
-                    {
-                        u.mRemoved += line[cindex].mChar;
-                        line.erase(line.begin() + cindex);
-                    }
+                    static std::mutex line_erase;
+                    std::future<void> line_insert_future = std::async(std::launch::async, [&](){
+                        std::lock_guard<std::mutex> lock_line_erase(line_erase);
+                        
+                        while (d-- > 0 && cindex < (int)line.size())
+                        {
+                            u.mRemoved += line[cindex].mChar;
+                            line.erase(line.begin() + cindex);
+                        }
+                    });
                 }
                 for (int i = 0; i < 2; i++, ++cindex)
                     line.insert(line.begin() + cindex, Glyph(buf[i], PaletteIndex::Default));
@@ -1483,11 +1534,16 @@ namespace  ArmSimPro
                     u.mRemovedStart = mState.mCursorPosition;
                     u.mRemovedEnd = Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex + d));
 
-                    while (d-- > 0 && cindex < (int)line.size())
-                    {
-                        u.mRemoved += line[cindex].mChar;
-                        line.erase(line.begin() + cindex);
-                    }
+                    static std::mutex line_erase;
+                    std::future<void> line_insert_future = std::async(std::launch::async, [&](){
+                        std::lock_guard<std::mutex> lock_line_erase(line_erase);
+                        
+                        while (d-- > 0 && cindex < (int)line.size())
+                        {
+                            u.mRemoved += line[cindex].mChar;
+                            line.erase(line.begin() + cindex);
+                        }
+                    });
                 }
                 for (int i = 0; i < 2; i++, ++cindex)
                     line.insert(line.begin() + cindex, Glyph(buf[i], PaletteIndex::Default));
@@ -1513,25 +1569,33 @@ namespace  ArmSimPro
                     u.mRemovedStart = mState.mCursorPosition;
                     u.mRemovedEnd = Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex + d));
 
-                    while (d-- > 0 && cindex < (int)line.size())
-                    {
-                        u.mRemoved += line[cindex].mChar;
-                        line.erase(line.begin() + cindex);
-                    }
+                    static std::mutex line_erase;
+                    std::future<void> line_erase_future = std::async(std::launch::async, [&](){
+                        std::lock_guard<std::mutex> lock_line_erase(line_erase);
+                        
+                        while (d-- > 0 && cindex < (int)line.size())
+                        {
+                            u.mRemoved += line[cindex].mChar;
+                            line.erase(line.begin() + cindex);
+                        }
+                    });
                 }
 
-                for (auto p = buf; *p != '\0'; p++, ++cindex)
-                    line.insert(line.begin() + cindex, Glyph(*p, PaletteIndex::Default));
-                u.mAdded = buf;
-
-                SetCursorPosition(Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex)));
+                static std::mutex line_insert;
+                std::future<void> line_insert_future = std::async(std::launch::async, [&](){
+                    std::lock_guard<std::mutex> lock_line_insert(line_insert);
+                    
+                    for (auto p = buf; *p != '\0'; p++, ++cindex)
+                        line.insert(line.begin() + cindex, Glyph(*p, PaletteIndex::Default));
+                    u.mAdded = buf;
+                    
+                    SetCursorPosition(Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex)));
+                });
             }
             else
                 return;
         }
-
         mTextChanged = true;
-
         u.mAddedEnd = GetActualCursorCoordinates();
         u.mAfter = mState;
 

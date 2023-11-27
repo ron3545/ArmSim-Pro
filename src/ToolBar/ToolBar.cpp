@@ -109,7 +109,7 @@ namespace ArmSimPro
             {
                 if(RunToolBar(Tool, requested_size) || Tool.tool.isActive)
                     current_button = Tool.button_name;
-                ShowPrimarySideBar(Tool);
+                ShowPrimarySideBar(Tool); 
             }
         }
         ImGui::PopStyleColor();
@@ -149,9 +149,16 @@ namespace ArmSimPro
         ImGui::SetNextWindowViewport(viewport->ID);
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         ImGui::PushStyleColor(ImGuiCol_WindowBg, _bg_col.GetCol());
-        ImGui::Begin(std::string(Tool.button_name + " Primary SideBar").c_str(), NULL, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::Begin(std::string(Tool.button_name + " Primary SideBar").c_str(), NULL, ImGuiWindowFlags_NoCollapse | 
+                    ImGuiWindowFlags_NoTitleBar | 
+                    ImGuiWindowFlags_NoDocking | 
+                    ImGuiWindowFlags_NoScrollbar | 
+                    ImGuiWindowFlags_NoResize | 
+                    ImGuiWindowFlags_NoFocusOnAppearing | 
+                    ImGuiWindowFlags_NoBringToFrontOnFocus | 
+                    ImGuiWindowFlags_NoScrollWithMouse);
         {   
             ImVec2 windowPos = ImGui::GetWindowPos();
             ImVec2 windowSize = ImGui::GetWindowSize();
@@ -161,11 +168,12 @@ namespace ArmSimPro
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
             
-            ImGui::BeginChild(Tool.button_name.c_str(), ImVec2(windowSize.x - splitter_thickness, windowSize.y - splitter_thickness), false, ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove);
+            ImGui::BeginChild(Tool.button_name.c_str(), ImVec2(windowSize.x - splitter_thickness, windowSize.y - splitter_thickness), false, ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove);
                 std::future<void> future;
                 if(Tool.tool.ptr_to_func){
                     future = std::async(std::launch::async, Tool.tool.ptr_to_func);
                     future.get();
+                    //Tool.tool.ptr_to_func();
                 }
             ImGui::EndChild();
             ImGui::PopStyleVar(2);

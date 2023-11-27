@@ -9,12 +9,14 @@
 #include <filesystem>
 #include <cstring>
 #include <map>
+#include <unordered_map>
 #include <string_view>
 
 #include <mutex>
 #include <thread>
 #include <numeric>
 #include <future>
+#include <chrono>
 
 #include <fstream>
 #include <streambuf>
@@ -32,12 +34,20 @@
 #include "Editor/TextEditor.h"
 #include "FileDialog/FileDialog.h"
 
+const char* WELCOME_PAGE = "\tWelcome\t";
 //=======================================================Variables==========================================================================
-static std::map<std::string, ArmSimPro::TextEditor> Opened_TextEditors;  //Storage for all the instances of text editors that has been opened
-static size_t prev_number_opened_texteditor;
 
 static std::filesystem::path SelectedProjectPath; 
 static std::filesystem::path NewProjectDir; 
+
+static std::set<ImGuiID> undocked_windows;
+
+static ArmSimPro::TextEditor* view_only_editor = nullptr; bool show_view_only_editor = false;
+static std::string selected_view_editor;       //parameter for bypasing dockspace only-once-run protocol 
+static std::string prev_selected_view_editor;  //parameter for bypasing dockspace only-once-run protocol 
+
+static std::unordered_map< std::string, ArmSimPro::TextEditor> Opened_TextEditors;  //Storage for all the instances of text editors that has been opened
+static size_t prev_number_opened_texteditor = 0;
 
 static std::string Project_Name;        // name of the project
 static bool UseDefault_Location = true;
@@ -55,6 +65,12 @@ static ImageData Search_image;
 static ImageData Settings_image;
 
 static SingleImageData ErroSymbol; 
+
+static ImFont* DefaultFont;     
+static ImFont* CodeEditorFont;
+static ImFont* FileTreeFont;
+static ImFont* StatusBarFont;
+static ImFont* TextFont;   
 //==========================================================================================================================================
 bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
@@ -72,15 +88,16 @@ struct DirectoryNode
 
 static DirectoryNode project_root_node;
 
-static std::string Prev_Selected_File_Path;
-static std::string Selected_File_Path;          
-static std::string Selcted_File_Name;
-static std::string Prev_Selected_File_Name;
+//std::string Selected_File_Path;          
+//std::string Selcted_File_Name;
+//std::string Prev_Selected_File_Name;
 
-static void RecursivelyAddDirectoryNodes(DirectoryNode& parentNode, std::filesystem::directory_iterator directoryIterator);
+static void RecursivelyAddDirectoryNodes(DirectoryNode& parentNode, std::filesystem::directory_iterator& directoryIterator);
 static DirectoryNode CreateDirectryNodeTreeFromPath(const std::filesystem::path& rootPath);
 static void ImplementDirectoryNode();
 static void SearchOnCodeEditor();
+
+void DockSpace(const ImVec2& size, const ImVec2& pos);
 
 const char* ppnames[] = { "NULL", "PM_REMOVE",
     "ZeroMemory", "DXGI_SWAP_EFFECT_DISCARD", "D3D_FEATURE_LEVEL", "D3D_DRIVER_TYPE_HARDWARE", "WINAPI","D3D11_SDK_VERSION", "assert" };
@@ -148,4 +165,83 @@ static DirStatus CreatesDefaultProjectDirectory(const std::filesystem::path& New
         return DirStatus_FailedToCreate;
     }
     return CreateProjectDirectory(NewProjectPath, ProjectName, output_path);
+}
+
+std::string GetFileNameFromPath(const std::string& filePath) {
+    // Find the position of the last directory separator
+    size_t lastSeparatorPos = filePath.find_last_of("\\/");
+
+    // Check if a separator is found
+    if (lastSeparatorPos != std::string::npos) {
+        // Extract the substring starting from the position after the separator
+        return filePath.substr(lastSeparatorPos + 1);
+    }
+
+    // If no separator is found, return the original path
+    return filePath;
+}
+
+void OpenFileDialog(std::filesystem::path& path, const char* key)
+{
+    if (ArmSimPro::FileDialog::Instance().IsDone(key)) {
+        if (ArmSimPro::FileDialog::Instance().HasResult()) 
+            path = ArmSimPro::FileDialog::Instance().GetResult();
+        
+        ArmSimPro::FileDialog::Instance().Close();
+    }
+    
+    std::string_view folder_name = path.filename().u8string();
+    std::string_view full_path = path.u8string();
+    if(folder_name.empty() && !full_path.empty()){
+        ImGui::OpenPopup("Warning Screen");
+        path.clear();
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(300, 130));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(50.0f, 10.0f));
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, bg_col.GetCol());
+    ImGui::PushStyleColor(ImGuiCol_TitleBg, bg_col.GetCol());
+    if(ImGui::BeginPopupModal("Warning Screen", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
+    {  
+        ImGui::PushFont(CodeEditorFont);
+            ImGui::TextWrapped("Selected folder Invalid");
+            ImGui::Dummy(ImVec2(0, 5));
+            ImGui::Separator();
+            ImGui::Dummy(ImVec2(0, 7));
+            if(ImGui::Button("Ok", ImVec2(200, 30)))
+                ImGui::CloseCurrentPopup();
+        ImGui::PopFont();
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar();
+}
+
+ArmSimPro::TextEditor& GetFocusedTextEditor()
+{
+    if(!Opened_TextEditors.empty()){
+        for(auto& editor : Opened_TextEditors)
+        {
+            if(editor.second.IsWindowFocused())
+                return editor.second;
+        }
+    }
+    return ArmSimPro::TextEditor();
+}
+
+static bool ShouldShowWelcomePage()
+{
+    return Opened_TextEditors.empty() && project_root_node.FileName.empty() && project_root_node.FullPath.empty();
+}
+
+template<class T> void SafeDelete(T*& pVal)
+{
+    delete pVal;
+    pVal = NULL;
+}
+
+template<class T> void SafeDeleteArray(T*& pVal)
+{
+    delete[] pVal;
+    pVal = NULL;
 }

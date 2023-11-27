@@ -8,7 +8,13 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <map>
+
 #include <regex>
+#include <mutex>
+#include <thread>
+#include <numeric>
+#include <future>
+#include <chrono>
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "../imgui/imgui.h"
@@ -18,6 +24,7 @@ namespace ArmSimPro
     class TextEditor
     {
     public:
+        bool IsOpen = false;
         enum class PaletteIndex
         {
             Default,
@@ -183,9 +190,9 @@ namespace ArmSimPro
         };
 
         TextEditor();
-        TextEditor(const ImVec4& window_bg_col);
+        TextEditor(const std::string& Title, const ImVec4& window_bg_col);
         ~TextEditor() {}
-        void Render(const char* aTitle, const ImVec2& aSize = ImVec2(), bool aBorder = false);
+        void Render(ImFont* font,bool *show_exit_btn = nullptr, const ImVec2& aSize = ImVec2(), bool aBorder = false);
 
         void SetLanguageDefinition(const LanguageDefinition& aLanguageDef);
         const LanguageDefinition& GetLanguageDefinition() const { return mLanguageDefinition; }
@@ -205,13 +212,17 @@ namespace ArmSimPro
         std::string GetSelectedText() const;
         std::string GetCurrentLineText()const;
 
+        float GetReadingDuration() const {return mReadingFileDuration;}
+
+        std::string GetTitle() const {return aTitle;}
         int GetTotalLines() const { return (int)mLines.size(); }
         bool IsOverwrite() const { return mOverwrite; }
 
         void SetReadOnly(bool aValue);
         bool IsReadOnly() const { return mReadOnly; }
-        bool IsTextChanged() const { return mTextChanged; }
+        bool IsTextChanged() const { return mTextChanged; } 
         bool IsCursorPositionChanged() const { return mCursorPositionChanged; }
+        bool IsWindowFocused() const {return ImGui::IsWindowFocused();}
 
         bool IsColorizerEnabled() const { return mColorizerEnabled; }
         void SetColorizerEnable(bool aValue);
@@ -312,6 +323,9 @@ namespace ArmSimPro
 
         typedef std::vector<UndoRecord> UndoBuffer;
 
+        void SetRegexList(const std::string& first, const PaletteIndex& second);
+        void RenderMainEditor(ImDrawList* drawList, int lineNo, ImVec2& cursorScreenPos, ImVec2& contentSize, float *longest, float scrollX, float spaceSize, char *buf, size_t buf_size = 16);
+
         void ProcessInputs();
         void Colorize(int aFromLine = 0, int aCount = -1);
         void ColorizeRange(int aFromLine = 0, int aToLine = 0);
@@ -352,13 +366,15 @@ namespace ArmSimPro
 
         void HandleKeyboardInputs();
         void HandleMouseInputs();
-        void Render();
-        void RenderChild(const char* aTitle, const ImVec2& aSize = ImVec2(), bool aBorder = false);
+        void RenderEditor();
+        void RenderChild(const ImVec2& aSize = ImVec2(), bool aBorder = false);
     private:
-        
+        std::string aTitle;
+
         float mLineSpacing;
         float mLastClick;
         float mTextStart;  // position (in pixels) where a code line starts relative to the left of the TextEditor.
+        float mReadingFileDuration;
 
         int mUndoIndex;
         int mTabSize;
@@ -398,5 +414,7 @@ namespace ArmSimPro
         std::string mLineBuffer;  //handles the colorized texts being displayed
         uint64_t mStartTime;
         const ImVec4 _window_bg_col;
+
+        
     };
 };
