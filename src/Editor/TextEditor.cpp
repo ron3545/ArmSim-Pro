@@ -27,6 +27,7 @@ namespace  ArmSimPro
 
     TextEditor::TextEditor()
         : _window_bg_col(ImVec4(0,0,0,1))
+        , isWindowDocked(true)
         , mLineSpacing(1.0f)
         , mUndoIndex(0)
         , mTabSize(4)
@@ -57,7 +58,8 @@ namespace  ArmSimPro
     }
 
     TextEditor::TextEditor(const std::string& Title, const ImVec4& window_bg_col)
-        : aTitle(Title)
+        : path(Title)
+        , isWindowDocked(true)
         , _window_bg_col(window_bg_col)
         , mLineSpacing(1.0f)
         , mUndoIndex(0)
@@ -86,6 +88,16 @@ namespace  ArmSimPro
         SetPalette(GetDarkPalette());
         SetLanguageDefinition(LanguageDefinition::CPlusPlus());
         mLines.push_back(Line());
+
+        //get file name
+        size_t lastSeparatorPos = path.find_last_of("\\/");
+        if (lastSeparatorPos != std::string::npos) {
+            // Extract the substring starting from the position after the separator
+            aTitle = "\t" + path.substr(lastSeparatorPos + 1) + "\t";
+        }
+        else 
+            aTitle = "\t" + path + "\t";
+        
     }
 
     static std::mutex m_regexList;
@@ -1214,11 +1226,10 @@ namespace  ArmSimPro
         mWithinRender = false;
     }
 
-    void TextEditor::Render(ImFont* font, bool *show_exit_btn, const ImVec2& aSize, bool aBorder)
+    void TextEditor::Render( bool *show_exit_btn, const ImVec2& aSize, bool aBorder, bool noMove)
     {   
-        ImGuiWindowClass window_class;
-        window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_CentralNode; 
-        ImGui::SetNextWindowClass(&window_class);
+        if(!isWindowDocked)
+            ImGui::SetNextWindowSize(ImVec2(800,300));
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
         //ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 0.0f));
@@ -1228,12 +1239,12 @@ namespace  ArmSimPro
         ImGui::PushStyleColor(ImGuiCol_Tab, _window_bg_col);
         ImGui::PushStyleColor(ImGuiCol_TitleBg, _window_bg_col);
 
-        ImGui::PushFont(font);
-        ImGui::Begin(aTitle.c_str(), show_exit_btn);
+        bool window_opened = ImGui::Begin(aTitle.c_str(), show_exit_btn, (noMove)? ImGuiWindowFlags_NoMove : 0);
+        if(window_opened)
         {
+            isWindowDocked = ImGui::IsWindowDocked();
             RenderChild(aSize, aBorder);
         }
-        ImGui::PopFont();
         ImGui::PopStyleColor(4);
         ImGui::End();
         ImGui::PopStyleVar(2);

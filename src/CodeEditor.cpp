@@ -328,6 +328,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                     size[ImGuiAxis_Y] = viewport->WorkSize.y - (cmd_panel->GetCurretnHeight() + status_bar->GetHeight() + 47);
                 }
 
+                
                 //Creates DockSpace
                 std::thread dock_thread(DockSpace, size, pos);
                 dock_thread.join();
@@ -354,22 +355,24 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                     ImGui::PopStyleVar(3);
                 }
                 
-                
+                ImGui::PushFont(CodeEditorFont);
                 if(view_only_editor != nullptr && show_view_only_editor)
-                    view_only_editor->Render(CodeEditorFont, &show_view_only_editor);
+                    view_only_editor->Render( &show_view_only_editor);
                 
                 if(!Opened_TextEditors.empty())
                 {   
                     auto it = Opened_TextEditors.begin();
-                    while(it != Opened_TextEditors.end()){
-                        if(it->second.IsOpen){
-                            it->second.Render(CodeEditorFont, &it->second.IsOpen);
-                            ++it;
+                    while(it != Opened_TextEditors.end())
+                    {
+                        if(it->second.text_editor.IsOpen){
+                            it->second.text_editor.Render(&it->second.text_editor.IsOpen);
+                            it++;
                         }
                         else
                             it = Opened_TextEditors.erase(it);
                     }
                 }
+                ImGui::PopFont();
             }
         }
         ImGui::Render();
@@ -561,9 +564,8 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
                 }
 
                 if(ImGui::IsMouseDoubleClicked(0))
-                {   
+                {  
                     //Check if file is not on dictionary
-                    static unsigned int id = 0;
                     if(Opened_TextEditors.find(parentNode.FullPath) == Opened_TextEditors.end())
                     {   
                         if(selected_view_editor == parentNode.FullPath)
@@ -571,8 +573,7 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
                             show_view_only_editor = false;
                             SafeDelete<ArmSimPro::TextEditor>(view_only_editor);
                         }
-                        const std::string file_name = "\t" + parentNode.FileName + "\t ##" + std::to_string(id);
-                        ArmSimPro::TextEditor editor(file_name.c_str(), bg_col.GetCol());
+                        ArmSimPro::TextEditor editor(parentNode.FullPath.c_str(), bg_col.GetCol());
                         auto programming_lang = ArmSimPro::TextEditor::LanguageDefinition::CPlusPlus();
 
                         for (int i = 0; i < sizeof(ppnames) / sizeof(ppnames[0]); ++i)
@@ -596,8 +597,9 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 
                             editor.SetText(str);
                         }
-                        Opened_TextEditors.insert(std::make_pair(parentNode.FullPath, editor));
-                        id++;
+
+                        EditorData txt_editor(editor, false);
+                        Opened_TextEditors.insert(std::make_pair(parentNode.FullPath, txt_editor));
                     }
                 }
                 else
@@ -758,7 +760,6 @@ void ImplementDirectoryNode()
         }
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
-
         ImGui::PopFont();
     }
 //========================================================================================================================================================================
@@ -778,14 +779,10 @@ void DockSpace(const ImVec2& size, const ImVec2& pos)
     ImGui::SetNextWindowSize(size);
     ImGui::SetNextWindowViewport(viewport->ID);
 
-    //use the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
-    // because it would be confusing to have two docking targets within each others.
     ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
     window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus; 
     
     static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
-    //if(dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
-        //window_flags |= ImGuiWindowFlags_NoBackground;
 
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 10)); //used to change window titlebar height;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -800,10 +797,13 @@ void DockSpace(const ImVec2& size, const ImVec2& pos)
         {
             ImGuiID dockspace_id = ImGui::GetID("MyDockspace");
             const ImVec2 dockspace_size = ImGui::GetContentRegionAvail();
-            ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags );
+            if(ShouldShowWelcomePage())
+                ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags | ImGuiDockNodeFlags_NoWindowMenuButton);
+            else
+                ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
 
             static bool first_run = true;
-            if(first_run || Opened_TextEditors.size() != prev_number_opened_texteditor || selected_view_editor != prev_selected_view_editor)
+            if(first_run || Opened_TextEditors.size() != prev_number_docked_window || selected_view_editor != prev_selected_view_editor)
             {
                 ImGui::DockBuilderRemoveNode(dockspace_id); // clear any previous layout
                 ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
@@ -822,12 +822,11 @@ void DockSpace(const ImVec2& size, const ImVec2& pos)
 
                 if(!Opened_TextEditors.empty())
                 {
-                    //Use this part to dock all selected window
-                    prev_number_opened_texteditor = Opened_TextEditors.size();
+                    //Use this part to dock all selected window. Except to those window that are removed to the dock space
+                    prev_number_docked_window = Opened_TextEditors.size();
+                    unsigned int i = 0;
                     for(auto& window : Opened_TextEditors)
-                    {   
-                        ImGui::DockBuilderDockWindow(window.second.GetTitle().c_str(), dockspace_id); 
-                    }
+                        ImGui::DockBuilderDockWindow(window.second.text_editor.GetTitle().c_str(), dockspace_id);
                 }
                 ImGui::DockBuilderFinish(dockspace_id);
             }
@@ -836,6 +835,7 @@ void DockSpace(const ImVec2& size, const ImVec2& pos)
     ImGui::PopStyleColor(2);
     ImGui::End();
     ImGui::PopStyleVar(4);
+    
 }
 //================================================================================================================================
 bool CreateDeviceD3D(HWND hWnd)

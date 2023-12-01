@@ -192,7 +192,8 @@ namespace ArmSimPro
         TextEditor();
         TextEditor(const std::string& Title, const ImVec4& window_bg_col);
         ~TextEditor() {}
-        void Render(ImFont* font,bool *show_exit_btn = nullptr, const ImVec2& aSize = ImVec2(), bool aBorder = false);
+        void Render(bool *show_exit_btn = nullptr, const ImVec2& aSize = ImVec2(), bool aBorder = false, bool noMove = true);
+        bool DockWindow();
 
         void SetLanguageDefinition(const LanguageDefinition& aLanguageDef);
         const LanguageDefinition& GetLanguageDefinition() const { return mLanguageDefinition; }
@@ -217,6 +218,9 @@ namespace ArmSimPro
         std::string GetTitle() const {return aTitle;}
         int GetTotalLines() const { return (int)mLines.size(); }
         bool IsOverwrite() const { return mOverwrite; }
+
+        bool IsWindowDocked() const { return isWindowDocked; }
+        void SetWindowDocked(bool aValue) { isWindowDocked = aValue; }
 
         void SetReadOnly(bool aValue);
         bool IsReadOnly() const { return mReadOnly; }
@@ -370,7 +374,8 @@ namespace ArmSimPro
         void RenderChild(const ImVec2& aSize = ImVec2(), bool aBorder = false);
     private:
         std::string aTitle;
-
+        std::string path;
+        bool isWindowDocked;
         float mLineSpacing;
         float mLastClick;
         float mTextStart;  // position (in pixels) where a code line starts relative to the left of the TextEditor.

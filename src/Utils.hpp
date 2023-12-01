@@ -24,6 +24,8 @@
 #include <dinput.h>
 #include <tchar.h>
 #include <set>
+#include <algorithm>
+#include <functional>
 
 #include "MenuBar/File.h"
 #include "MenuBar/Edit.h"
@@ -40,16 +42,23 @@ const char* WELCOME_PAGE = "\tWelcome\t";
 static std::filesystem::path SelectedProjectPath; 
 static std::filesystem::path NewProjectDir; 
 
-static std::set<ImGuiID> undocked_windows;
-
 static ArmSimPro::TextEditor* view_only_editor = nullptr; bool show_view_only_editor = false;
 static std::string selected_view_editor;       //parameter for bypasing dockspace only-once-run protocol 
 static std::string prev_selected_view_editor;  //parameter for bypasing dockspace only-once-run protocol 
 
-static std::unordered_map< std::string, ArmSimPro::TextEditor> Opened_TextEditors;  //Storage for all the instances of text editors that has been opened
-static size_t prev_number_opened_texteditor = 0;
+struct EditorData{
+    ArmSimPro::TextEditor text_editor;
+    bool isWindowUndocked;
+    bool isWindowPrevUndocked;
+    EditorData(ArmSimPro::TextEditor& editor, bool isUndocked) : text_editor(editor) , isWindowUndocked(isUndocked), isWindowPrevUndocked(false) {}
+};
 
-static std::string Project_Name;        // name of the project
+//static std::unordered_map<EditorDataKey, ArmSimPro::TextEditor, keyhasher> Opened_TextEditors;
+static std::unordered_map<std::string, EditorData> Opened_TextEditors;  //Storage for all the instances of text editors that has been opened
+static std::set<std::string> undocked_window;
+static size_t prev_number_docked_window = 0;
+
+static std::string Project_Name; 
 static bool UseDefault_Location = true;
 
 const RGBA bg_col = RGBA(24, 24, 24, 255);
@@ -222,8 +231,8 @@ ArmSimPro::TextEditor& GetFocusedTextEditor()
     if(!Opened_TextEditors.empty()){
         for(auto& editor : Opened_TextEditors)
         {
-            if(editor.second.IsWindowFocused())
-                return editor.second;
+            if(editor.second.text_editor.IsWindowFocused())
+                return editor.second.text_editor;
         }
     }
     return ArmSimPro::TextEditor();
