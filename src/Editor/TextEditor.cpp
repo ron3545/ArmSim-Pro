@@ -28,6 +28,7 @@ namespace  ArmSimPro
     TextEditor::TextEditor()
         : _window_bg_col(ImVec4(0,0,0,1))
         , isWindowDocked(true)
+        , isWindowFocused(true)
         , mLineSpacing(1.0f)
         , mUndoIndex(0)
         , mTabSize(4)
@@ -57,9 +58,12 @@ namespace  ArmSimPro
         mLines.push_back(Line());
     }
 
-    TextEditor::TextEditor(const std::string& Title, const ImVec4& window_bg_col)
-        : path(Title)
+    TextEditor::TextEditor(const std::string& full_path, const ImVec4& window_bg_col, bool multiple_editor)
+        : path(full_path)
         , isWindowDocked(true)
+        , HasMultipleEditor(multiple_editor)
+        , isWindowFocused(true)
+        , ShouldRemoveFocus(false)
         , _window_bg_col(window_bg_col)
         , mLineSpacing(1.0f)
         , mUndoIndex(0)
@@ -93,11 +97,29 @@ namespace  ArmSimPro
         size_t lastSeparatorPos = path.find_last_of("\\/");
         if (lastSeparatorPos != std::string::npos) {
             // Extract the substring starting from the position after the separator
-            aTitle = "\t" + path.substr(lastSeparatorPos + 1) + "\t";
+            file_name = path.substr(lastSeparatorPos + 1);
+            aTitle = "\t" + file_name + "\t";
         }
-        else 
+        else{
             aTitle = "\t" + path + "\t";
-        
+            file_name = path;
+        }
+    }
+
+    std::string TextEditor::GetFileExtension() const
+    {
+        size_t lastDotPos = path.find_last_of('.');
+        if(lastDotPos != std::string::npos){
+            std::string fileExtension = path.substr(lastDotPos);
+            if (fileExtension == ".cpp" || fileExtension == ".hpp" || fileExtension == ".h")
+                return "C++";
+            else if (fileExtension == ".c" || fileExtension == ".h") 
+                return "C";
+            else if (fileExtension == ".py") 
+                return "Python";
+            return "Unknown";
+        }
+        return " ";
     }
 
     static std::mutex m_regexList;
@@ -752,7 +774,7 @@ namespace  ArmSimPro
         auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
         auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
 
-        if (ImGui::IsWindowFocused())
+        if (isWindowFocused)
         {
             if (ImGui::IsWindowHovered())
                 ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
@@ -973,8 +995,6 @@ namespace  ArmSimPro
 
         if (mState.mCursorPosition.mLine == lineNo)
         {
-            auto focused = ImGui::IsWindowFocused();
-
             static std::mutex cursor;
             std::future<void> future_res = std::async(std::launch::async, [&](){
                 std::lock_guard<std::mutex> lock(cursor);
@@ -983,12 +1003,12 @@ namespace  ArmSimPro
                 if (!HasSelection())
                 {
                     auto end = ImVec2(start.x + contentSize.x + scrollX, start.y + mCharAdvance.y);
-                    drawList->AddRectFilled(start, end, mPalette[(int)(focused ? PaletteIndex::CurrentLineFill : PaletteIndex::CurrentLineFillInactive)]);
+                    drawList->AddRectFilled(start, end, mPalette[(int)(isWindowFocused ? PaletteIndex::CurrentLineFill : PaletteIndex::CurrentLineFillInactive)]);
                     drawList->AddRect(start, end, mPalette[(int)PaletteIndex::CurrentLineEdge], 1.0f);
                 }
 
                 // Render the cursor
-                if (focused)
+                if (isWindowFocused)
                 {
                     auto timeEnd = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                     auto elapsed = timeEnd - mStartTime;
@@ -1201,6 +1221,7 @@ namespace  ArmSimPro
         if (!mIgnoreImGuiChild)
             ImGui::BeginChild(aTitle.c_str(), aSize, aBorder, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar | ImGuiWindowFlags_NoMove);
 
+            isChildWindowFocus = ImGui::IsWindowFocused();
         if (mHandleKeyboardInputs)
         {
             HandleKeyboardInputs();
@@ -1239,10 +1260,18 @@ namespace  ArmSimPro
         ImGui::PushStyleColor(ImGuiCol_Tab, _window_bg_col);
         ImGui::PushStyleColor(ImGuiCol_TitleBg, _window_bg_col);
 
-        bool window_opened = ImGui::Begin(aTitle.c_str(), show_exit_btn, (noMove)? ImGuiWindowFlags_NoMove : 0);
+        bool window_opened = ImGui::Begin(aTitle.c_str(), show_exit_btn);//, (noMove)? ImGuiWindowFlags_NoMove : 0);
         if(window_opened)
         {
-            isWindowDocked = ImGui::IsWindowDocked();
+            //isWindowFocused -> When this window was pressed or has focus, "isWindowFocused" will be set to true even though the window become unfocused
+            // as long as I dont click other window. When other window was clicked it should disable "isWindowFocused" on other window.
+            // if there is multiple window. it is crucial to change the "isWindowFocused" variable on other instance of this class.
+            isWindowSelected = ImGui::IsWindowFocused();
+            
+            if((isWindowSelected || isChildWindowFocus) && window_opened)
+                isWindowFocused = true;
+            else
+                isWindowFocused = false;
             RenderChild(aSize, aBorder);
         }
         ImGui::PopStyleColor(4);

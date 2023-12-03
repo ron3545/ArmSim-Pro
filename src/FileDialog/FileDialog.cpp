@@ -556,11 +556,11 @@ namespace ArmSimPro {
 
 		if (isMe && m_isOpen) {
 			if (!m_calledOpenPopup) {
-				ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
+				ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
 				ImGui::OpenPopup(m_currentTitle.c_str());
 				m_calledOpenPopup = true;
 			}
-
+		
 			if (ImGui::BeginPopupModal(m_currentTitle.c_str(), &m_isOpen, ImGuiWindowFlags_NoScrollbar)) {
 				m_renderFileDialog();
 				ImGui::EndPopup();
@@ -1297,7 +1297,7 @@ namespace ArmSimPro {
 			ImGui::InputText("##newfilename", m_newEntryBuffer, 1024); // TODO: remove hardcoded literals
 			ImGui::PopItemWidth();
 
-			if (ImGui::Button("OK")) {
+			if (ImGui::Button("OK") || ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Enter))) {
 				std::ofstream out((m_currentDirectory / std::string(m_newEntryBuffer)).string());
 				out << "";
 				out.close();
@@ -1308,7 +1308,7 @@ namespace ArmSimPro {
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::SameLine();
-			if (ImGui::Button("Cancel")) {
+			if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Escape))) {
 				m_newEntryBuffer[0] = 0;
 				ImGui::CloseCurrentPopup();
 			}
@@ -1439,7 +1439,7 @@ namespace ArmSimPro {
 		// buttons
 		float ok_cancel_width = GUI_ELEMENT_SIZE * 7;
 		ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ok_cancel_width);
-		if (ImGui::Button(m_type == IFD_DIALOG_SAVE ? "Save" : "Open", ImVec2(ok_cancel_width / 2 - ImGui::GetStyle().ItemSpacing.x, 0.0f))) {
+		if (ImGui::Button(m_type == IFD_DIALOG_SAVE ? "Save" : "Open", ImVec2(ok_cancel_width / 2 - ImGui::GetStyle().ItemSpacing.x, 0.0f)) || ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Enter))) {
 			std::string filename(m_inputTextbox);
 			bool success = false;
 			if (!filename.empty() || m_type == IFD_DIALOG_DIRECTORY)

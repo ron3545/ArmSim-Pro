@@ -27,8 +27,11 @@
 #include <algorithm>
 #include <functional>
 
-#include "MenuBar/File.h"
-#include "MenuBar/Edit.h"
+#define IMGUI_DEFINE_MATH_OPERATORS
+#include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
+#include "imgui/imgui_stdlib.h"
+
 #include "ToolBar/ToolBar.h"
 #include "ImageHandler/ImageHandler.h"
 #include "StatusBar/StatusBar.h"
@@ -46,15 +49,11 @@ static ArmSimPro::TextEditor* view_only_editor = nullptr; bool show_view_only_ed
 static std::string selected_view_editor;       //parameter for bypasing dockspace only-once-run protocol 
 static std::string prev_selected_view_editor;  //parameter for bypasing dockspace only-once-run protocol 
 
-struct EditorData{
-    ArmSimPro::TextEditor text_editor;
-    bool isWindowUndocked;
-    bool isWindowPrevUndocked;
-    EditorData(ArmSimPro::TextEditor& editor, bool isUndocked) : text_editor(editor) , isWindowUndocked(isUndocked), isWindowPrevUndocked(false) {}
-};
+static std::string selected_window_path, prev_selected_window_path; // for editing
+static std::string current_editor, prev_editor; // for viewing stats
 
-//static std::unordered_map<EditorDataKey, ArmSimPro::TextEditor, keyhasher> Opened_TextEditors;
-static std::unordered_map<std::string, EditorData> Opened_TextEditors;  //Storage for all the instances of text editors that has been opened
+       ArmSimPro::TextEditor *focused_editor = nullptr;
+static std::vector<ArmSimPro::TextEditor> Opened_TextEditors;  //Storage for all the instances of text editors that has been opened
 static std::set<std::string> undocked_window;
 static size_t prev_number_docked_window = 0;
 
@@ -217,25 +216,13 @@ void OpenFileDialog(std::filesystem::path& path, const char* key)
             ImGui::Dummy(ImVec2(0, 5));
             ImGui::Separator();
             ImGui::Dummy(ImVec2(0, 7));
-            if(ImGui::Button("Ok", ImVec2(200, 30)))
+            if(ImGui::Button("Ok", ImVec2(200, 30)) || ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Enter)))
                 ImGui::CloseCurrentPopup();
         ImGui::PopFont();
         ImGui::EndPopup();
     }
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar();
-}
-
-ArmSimPro::TextEditor& GetFocusedTextEditor()
-{
-    if(!Opened_TextEditors.empty()){
-        for(auto& editor : Opened_TextEditors)
-        {
-            if(editor.second.text_editor.IsWindowFocused())
-                return editor.second.text_editor;
-        }
-    }
-    return ArmSimPro::TextEditor();
 }
 
 static bool ShouldShowWelcomePage()
@@ -253,4 +240,27 @@ template<class T> void SafeDeleteArray(T*& pVal)
 {
     delete[] pVal;
     pVal = NULL;
+}
+
+namespace ArmSimPro
+{
+    struct MenuItemData{
+        const char *label, *shortcut;
+        bool *selected, enable;
+        std::function<void()> ToExec;
+
+        MenuItemData() {}
+        MenuItemData(const char* Label, const char* Shortcut, bool* Selected, bool isEnable, std::function<void()> ptr_to_func)
+            : label(Label), shortcut(Shortcut), selected(Selected), enable(isEnable), ToExec(ptr_to_func)
+        {}
+    };
+
+    void MenuItem(const MenuItemData& data, bool is_func_valid)
+    {
+        if(ImGui::MenuItem(data.label, data.shortcut, data.selected, data.enable))
+        {
+            if(data.ToExec && is_func_valid)
+                data.ToExec();
+        }
+    }
 }

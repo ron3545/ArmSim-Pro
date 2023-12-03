@@ -1,11 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS
-#define IMGUI_DEFINE_MATH_OPERATORS
-#include "imgui/imgui.h"
-#include "imgui/imgui_internal.h"
-#include "imgui/imgui_stdlib.h"
+#include "Utils.hpp"
 #include "imgui/imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
-#include "Utils.hpp"
 
 using namespace std;
 
@@ -35,7 +31,6 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow)
 {
-
     ImGui_ImplWin32_EnableDpiAwareness();
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr, L"ImGui Example", nullptr };
     ::RegisterClassExW(&wc);
@@ -214,7 +209,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
-        {   
+        { 
             float main_menubar_height;
             if(ImGui::BeginMainMenuBar())
             {   
@@ -234,8 +229,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
                     if (ImGui::MenuItem("\tSave", "CTRL+S")) 
                     {
-                        auto focused_editor = GetFocusedTextEditor();
-                        auto textToSave = focused_editor.GetText();
+                        //auto textToSave = focused_editor->second.GetText();
                         /// save text....
                     } 
 
@@ -253,61 +247,60 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
                 if (ImGui::BeginMenu("Edit"))
                 {   
-                    auto focused_editor = GetFocusedTextEditor();
-                    bool NoEditor_Selected = Opened_TextEditors.empty();
-                    bool ro = focused_editor.IsReadOnly();
-                    if (ImGui::MenuItem("\tUndo", "CTRL+Z", nullptr, (!ro && focused_editor.CanUndo()) || !NoEditor_Selected)) 
-                        //focused_editor.Undo();
-                    if (ImGui::MenuItem("\tRedo", "CTRL+Y", nullptr, (!ro && focused_editor.CanRedo()) || !NoEditor_Selected)) 
-                        //focused_editor.Redo();
-                    ImGui::Separator();
+                    bool NoEditor_Selected = Opened_TextEditors.empty() || (focused_editor != nullptr)? true : false;
+                    bool ro = (focused_editor != nullptr)? focused_editor->IsReadOnly() : true;
 
-                    if (ImGui::MenuItem("\tCut", "CTRL+X", nullptr, (!ro && focused_editor.HasSelection()) || !NoEditor_Selected)) 
-                        //focused_editor.Cut();
-                    if (ImGui::MenuItem("\tCopy", "CTRL+C", nullptr, (!ro && focused_editor.HasSelection()) || !NoEditor_Selected))
-                        //focused_editor.Copy();
-                    if (ImGui::MenuItem("\tDelete", "Del", nullptr, (!ro && focused_editor.HasSelection()) || !NoEditor_Selected)) 
-                        //focused_editor.Delete();
-                    if (ImGui::MenuItem("\tPaset", "Ctrl+V", nullptr, (!ro && ImGui::GetClipboardText() != nullptr) || !NoEditor_Selected)) 
-                        //focused_editor.Paste();
-                    ImGui::Separator();
-
-                    if (ImGui::MenuItem("\tSelect all", nullptr, nullptr, !NoEditor_Selected))
-					    //focused_editor.SetSelection(ArmSimPro::TextEditor::Coordinates(), ArmSimPro::TextEditor::Coordinates(focused_editor.GetTotalLines(), 0));
-
+                   ArmSimPro::MenuItemData menu_item_arr[] = {
+                       ArmSimPro::MenuItemData("\tUndo", "CTRL+Z", nullptr, (!ro && (focused_editor != nullptr)? focused_editor->CanUndo() : false), [&](){focused_editor->Undo();}),
+                       ArmSimPro::MenuItemData("\tRedo", "CTRL+Y", nullptr, (!ro && (focused_editor != nullptr)? focused_editor->CanRedo() : false), [&](){focused_editor->Redo();}),
+                       //, seperator here
+                       ArmSimPro::MenuItemData("\tCut", "CTRL+X", nullptr, (!ro && (focused_editor != nullptr)? focused_editor->HasSelection() : false), [&](){focused_editor->Cut();}),
+                       ArmSimPro::MenuItemData("\tCopy", "CTRL+C", nullptr, (!ro && (focused_editor != nullptr)?  focused_editor->HasSelection() : false), [&](){focused_editor->Copy();}),
+                       ArmSimPro::MenuItemData("\tDelete", "Del", nullptr, (!ro && (focused_editor != nullptr)? focused_editor->HasSelection() : false), [&](){focused_editor->Delete();}),
+                       ArmSimPro::MenuItemData("\tPaste", "Ctrl+V", nullptr, (!ro && ImGui::GetClipboardText() != nullptr), [&](){focused_editor->Paste();}),
+                       //,seperator here
+                        ArmSimPro::MenuItemData("\tSelect all", nullptr, nullptr, focused_editor != nullptr, [&](){focused_editor->SetSelection(ArmSimPro::TextEditor::Coordinates(), ArmSimPro::TextEditor::Coordinates(focused_editor->GetTotalLines(), 0));})
+                   };
+                    
+                    for(unsigned int i = 0; i < IM_ARRAYSIZE(menu_item_arr); i++)
+                    {
+                        ArmSimPro::MenuItem(menu_item_arr[i], true);
+                        if(i == 1 || i == 5)
+                            ImGui::Separator();
+                    }
                     ImGui::EndMenu();
                 }
+
                 main_menubar_height = ImGui::GetWindowHeight();
                 ImGui::EndMainMenuBar();
             }
-
+            
             horizontal_tool_bar->SetToolBar(main_menubar_height + 10);
-
-            //auto f_vertical_result = std::async(std::launch::async, &ArmSimPro::ToolBar::SetToolBar, vertical_tool_bar, horizontal_tool_bar->GetThickness(), status_bar->GetHeight() + 17);
             vertical_tool_bar->SetToolBar(horizontal_tool_bar->GetThickness(), status_bar->GetHeight() + 17);
 
             status_bar->BeginStatusBar();
             {
                 float width = ImGui::GetWindowWidth();
                 char buffer[255];
-                if(!Opened_TextEditors.empty()){
-
-                    //auto focused_editor = GetFocusedTextEditor();
-                    //auto cpos = focused_editor.GetCursorPosition();
-                    //snprintf(buffer, sizeof(buffer), "Ln %d, Col %-6d %6d lines  | %s | %s | %s | %s |  reading file duration: %f", cpos.mLine + 1, cpos.mColumn + 1, focused_editor.GetTotalLines(),
-                    //            focused_editor.IsOverwrite() ? "Ovr" : "Ins",
-                    //            focused_editor.CanUndo() ? "*" : " ",
-                    //            focused_editor.GetLanguageDefinition().mName.c_str(), focused_editor.GetTitle(),
-                    //            focused_editor.GetReadingDuration()
-                    //        );
+                
+                if(!Opened_TextEditors.empty())
+                {
+                    if(focused_editor != nullptr && focused_editor->IsOpen)
+                    {
+                        auto cpos = focused_editor->GetCursorPosition();
+                        snprintf(buffer, sizeof(buffer), "Ln %d, Col %-6d %6d lines  | %s | %s | %s | %s ", cpos.mLine + 1, cpos.mColumn + 1, focused_editor->GetTotalLines(),
+                                    focused_editor->IsOverwrite() ? "Ovr" : "Ins",
+                                    focused_editor->CanUndo() ? "*" : " ",
+                                    focused_editor->GetFileExtension().c_str(), 
+                                    focused_editor->GetFileName().c_str()
+                                );
+                        static ImVec2 textSize; 
+                        if(textSize.x == NULL)
+                            textSize = ImGui::CalcTextSize(buffer); //this is a bottleneck function. should prevent it from always calculatin
+                        ImGui::SetCursorPosX(width - (textSize.x + 100));
+                        ImGui::Text(buffer);
+                    }
                 }
-
-                static ImVec2 textSize; 
-                if(textSize.x == NULL)
-                    textSize = ImGui::CalcTextSize(buffer); //this is a bottleneck function. should prevent it from always calculating.
-
-                ImGui::SetCursorPosX(width - (textSize.x + 40));
-                ImGui::Text(buffer);
             }
             status_bar->EndStatusBar();
 
@@ -361,18 +354,30 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                 
                 if(!Opened_TextEditors.empty())
                 {   
-                    auto it = Opened_TextEditors.begin();
-                    while(it != Opened_TextEditors.end())
+                    for(auto it = Opened_TextEditors.begin(); it != Opened_TextEditors.end() ; ++it)
                     {
-                        if(it->second.text_editor.IsOpen){
-                            it->second.text_editor.Render(&it->second.text_editor.IsOpen);
-                            it++;
+                        if(it->IsOpen){
+                            it->Render(&it->IsOpen);
+                            if(it->IsWindowFocused()){
+                                selected_window_path = it->GetPath();
+                                current_editor = it->GetPath();
+                            }
                         }
-                        else
-                            it = Opened_TextEditors.erase(it);
+                        //else
+                            //Opened_TextEditors.erase(it);
                     }
                 }
                 ImGui::PopFont();
+
+                if(!Opened_TextEditors.empty() || view_only_editor != nullptr)
+                {
+                    if((selected_window_path != prev_selected_window_path) ){
+                        prev_selected_window_path = selected_window_path;
+                        auto iterator = std::find(Opened_TextEditors.begin(), Opened_TextEditors.end(), selected_window_path); 
+                        if(iterator != Opened_TextEditors.end())
+                            focused_editor = &(*iterator);
+                    }
+                }
             }
         }
         ImGui::Render();
@@ -565,15 +570,15 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 
                 if(ImGui::IsMouseDoubleClicked(0))
                 {  
-                    //Check if file is not on dictionary
-                    if(Opened_TextEditors.find(parentNode.FullPath) == Opened_TextEditors.end())
+                    auto it = std::find(Opened_TextEditors.begin(), Opened_TextEditors.end(), parentNode.FullPath);
+                    if(it == Opened_TextEditors.end())
                     {   
                         if(selected_view_editor == parentNode.FullPath)
                         {
                             show_view_only_editor = false;
                             SafeDelete<ArmSimPro::TextEditor>(view_only_editor);
                         }
-                        ArmSimPro::TextEditor editor(parentNode.FullPath.c_str(), bg_col.GetCol());
+                        ArmSimPro::TextEditor editor(parentNode.FullPath, bg_col.GetCol());
                         auto programming_lang = ArmSimPro::TextEditor::LanguageDefinition::CPlusPlus();
 
                         for (int i = 0; i < sizeof(ppnames) / sizeof(ppnames[0]); ++i)
@@ -597,9 +602,8 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 
                             editor.SetText(str);
                         }
-
-                        EditorData txt_editor(editor, false);
-                        Opened_TextEditors.insert(std::make_pair(parentNode.FullPath, txt_editor));
+                        
+                        Opened_TextEditors.insert(Opened_TextEditors.begin(), editor);
                     }
                 }
                 else
@@ -635,6 +639,7 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 
                         view_only_editor->SetText(str);
                     }
+                    view_only_editor->SetReadOnly(true);
                 }
             }    
             else if(ImGui::IsItemClicked(ImGuiMouseButton_Right) && !ImGui::IsItemToggledOpen())
@@ -736,13 +741,12 @@ void ImplementDirectoryNode()
 
             ImGui::Dummy(ImVec2(0, 15));
             ImGui::SetCursorPosX(500);
-            if(ImGui::Button("Cancel"))
-            {
+            if(ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Escape)))
                 ImGui::CloseCurrentPopup();
-            }
+            
             ImGui::SameLine();
             ImGui::Dummy(ImVec2(10, 0)); ImGui::SameLine();
-            if(ImGui::Button("Finish"))
+            if(ImGui::Button("Finish") || ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Enter)))
             {
                 if(Project_Name.empty())
                     DirCreateStatus = DirStatus_NameNotSpecified;
@@ -826,7 +830,7 @@ void DockSpace(const ImVec2& size, const ImVec2& pos)
                     prev_number_docked_window = Opened_TextEditors.size();
                     unsigned int i = 0;
                     for(auto& window : Opened_TextEditors)
-                        ImGui::DockBuilderDockWindow(window.second.text_editor.GetTitle().c_str(), dockspace_id);
+                        ImGui::DockBuilderDockWindow(window.GetTitle().c_str(), dockspace_id);
                 }
                 ImGui::DockBuilderFinish(dockspace_id);
             }

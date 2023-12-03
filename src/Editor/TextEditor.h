@@ -189,11 +189,20 @@ namespace ArmSimPro
             static const LanguageDefinition& C();
         };
 
+        bool operator==(const TextEditor& other) const { return this->path == other.path; }
+        bool operator==(const std::string& full_path) const { return this->path == full_path; }
+
+        TextEditor& operator=(const TextEditor& editor) { return *this; }
+        TextEditor& operator=(TextEditor& editor) { return *this; }
+
         TextEditor();
-        TextEditor(const std::string& Title, const ImVec4& window_bg_col);
+        TextEditor(const std::string& full_path, const ImVec4& window_bg_col, bool multiple_editor = true);
         ~TextEditor() {}
         void Render(bool *show_exit_btn = nullptr, const ImVec2& aSize = ImVec2(), bool aBorder = false, bool noMove = true);
-        bool DockWindow();
+
+        std::string GetFileName() const { return file_name; }
+        std::string GetFileExtension() const;
+        std::string GetPath() const { return path; }
 
         void SetLanguageDefinition(const LanguageDefinition& aLanguageDef);
         const LanguageDefinition& GetLanguageDefinition() const { return mLanguageDefinition; }
@@ -226,7 +235,7 @@ namespace ArmSimPro
         bool IsReadOnly() const { return mReadOnly; }
         bool IsTextChanged() const { return mTextChanged; } 
         bool IsCursorPositionChanged() const { return mCursorPositionChanged; }
-        bool IsWindowFocused() const {return ImGui::IsWindowFocused();}
+        bool IsWindowFocused() const {return isWindowFocused;}
 
         bool IsColorizerEnabled() const { return mColorizerEnabled; }
         void SetColorizerEnable(bool aValue);
@@ -374,8 +383,10 @@ namespace ArmSimPro
         void RenderChild(const ImVec2& aSize = ImVec2(), bool aBorder = false);
     private:
         std::string aTitle;
-        std::string path;
+        std::string path, file_name;
+        bool HasMultipleEditor;
         bool isWindowDocked;
+        bool isWindowFocused, isWindowSelected, isChildWindowFocus, ShouldRemoveFocus;
         float mLineSpacing;
         float mLastClick;
         float mTextStart;  // position (in pixels) where a code line starts relative to the left of the TextEditor.
