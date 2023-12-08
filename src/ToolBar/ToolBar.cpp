@@ -5,11 +5,6 @@
 
 #include <thread>
 #include <chrono>
-#include <mutex>
-#include <thread>
-#include <numeric>
-#include <future>
-
 using namespace std::chrono_literals;
 
 namespace ArmSimPro
@@ -30,19 +25,19 @@ namespace ArmSimPro
 
     ToolBar::ToolBar(const char* label, const RGBA& bg_col, float toolbar_thickness, ImGuiAxis toolbar_axis)
         : _label(label),  _bg_col(bg_col), _highlighter_col(RGBA(0, 120, 212, 255)), _isPrimarySideBarVisible(false), _highlighter_thickness(3), _toolbar_thickness(toolbar_thickness), 
-        _toolbar_axis(toolbar_axis), _spacing(24.6f), _primary_sidebar_width(340)
+        _toolbar_axis(toolbar_axis), _spacing(24.6f), _primary_sidebar_width(240)
 
     {
         _tool_size = ImVec2(toolbar_thickness , toolbar_thickness);
         viewport = ImGui::GetMainViewport();
     }
 
-    void ToolBar::AppendTool(const char* name, ImageData image, std::function<void()> ptr_to_func, bool NoHighlight, bool is_open_on_startup)
+    void ToolBar::AppendTool(const char* name, ImageData image, std::function<void()> ptr_to_func, bool NoHighlight)
     {
         ToolTip tool;
         tool.button_name = name;
         tool.tool.image = image;
-        tool.tool.isActive = is_open_on_startup;
+        tool.tool.isActive = false;
         tool.tool.ptr_to_func = ptr_to_func;
 
         Tools.push_back(tool);
@@ -83,10 +78,8 @@ namespace ArmSimPro
         return pressed;
     }
 
-    //static std::mutex Toolmutex;
     void ToolBar::SetToolBar(float top_margin, float bottom_margin)
     {   
-        //std::lock_guard<std::mutex> lock(Toolmutex);
         _toolbart_height = viewport->WorkSize.y - ((top_margin + bottom_margin));
         _primary_sidebar_posY= viewport->Pos.y + ((top_margin * 2) + 7);
 
@@ -107,9 +100,9 @@ namespace ArmSimPro
             ImGui::Spacing();
             for(auto& Tool : Tools)
             {
-                if(RunToolBar(Tool, requested_size) || Tool.tool.isActive)
+                if(RunToolBar(Tool, requested_size))
                     current_button = Tool.button_name;
-                ShowPrimarySideBar(Tool); 
+                ShowPrimarySideBar(Tool);
             }
         }
         ImGui::PopStyleColor();
@@ -141,7 +134,7 @@ namespace ArmSimPro
 
     void ToolBar::ShowPrimarySideBar(ToolTip& Tool)
     {   
-        if(!_isPrimarySideBarVisible || _toolbar_axis == ImGuiAxis_X || Tool.tool.isActive != true)
+        if(!_isPrimarySideBarVisible || _toolbar_axis == ImGuiAxis_X || !Tool.tool.isActive)
             return;
 
         ImGui::SetNextWindowSize(ImVec2(_primary_sidebar_width, _toolbart_height));
@@ -151,14 +144,7 @@ namespace ArmSimPro
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         ImGui::PushStyleColor(ImGuiCol_WindowBg, _bg_col.GetCol());
-        ImGui::Begin(std::string(Tool.button_name + " Primary SideBar").c_str(), NULL, ImGuiWindowFlags_NoCollapse | 
-                    ImGuiWindowFlags_NoTitleBar | 
-                    ImGuiWindowFlags_NoDocking | 
-                    ImGuiWindowFlags_NoScrollbar | 
-                    ImGuiWindowFlags_NoResize | 
-                    ImGuiWindowFlags_NoFocusOnAppearing | 
-                    ImGuiWindowFlags_NoBringToFrontOnFocus | 
-                    ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::Begin(std::string(Tool.button_name + " Primary SideBar").c_str(), NULL, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollWithMouse);
         {   
             ImVec2 windowPos = ImGui::GetWindowPos();
             ImVec2 windowSize = ImGui::GetWindowSize();
@@ -168,13 +154,9 @@ namespace ArmSimPro
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
             
-            ImGui::BeginChild(Tool.button_name.c_str(), ImVec2(windowSize.x - splitter_thickness, windowSize.y - splitter_thickness), false, ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove);
-                std::future<void> future;
-                if(Tool.tool.ptr_to_func){
-                    future = std::async(std::launch::async, Tool.tool.ptr_to_func);
-                    future.get();
-                    //Tool.tool.ptr_to_func();
-                }
+            ImGui::BeginChild(Tool.button_name.c_str(), ImVec2(windowSize.x - splitter_thickness, windowSize.y - splitter_thickness), false, ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove);
+            if(Tool.tool.ptr_to_func)
+                Tool.tool.ptr_to_func();
             ImGui::EndChild();
             ImGui::PopStyleVar(2);
             ImGui::PopStyleColor();

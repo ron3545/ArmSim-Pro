@@ -39,6 +39,9 @@
 #include "Editor/TextEditor.h"
 #include "FileDialog/FileDialog.h"
 
+#include "IconFontHeaders/IconsCodicons.h"
+#include "IconFontHeaders/IconsMaterialDesignIcons.h"
+
 const char* WELCOME_PAGE = "\tWelcome\t";
 //=======================================================Variables==========================================================================
 
@@ -50,10 +53,11 @@ static std::string selected_view_editor;       //parameter for bypasing dockspac
 static std::string prev_selected_view_editor;  //parameter for bypasing dockspace only-once-run protocol 
 
 static std::string selected_window_path, prev_selected_window_path; // for editing
-static std::string current_editor, prev_editor; // for viewing stats
+static std::string current_editor;
+static std::string selected_editor_path, prev_editor_path;
 
-       ArmSimPro::TextEditor *focused_editor = nullptr;
-static std::vector<ArmSimPro::TextEditor> Opened_TextEditors;  //Storage for all the instances of text editors that has been opened
+typedef std::vector<ArmSimPro::TextEditor> TextEditors;
+static TextEditors Opened_TextEditors;  //Storage for all the instances of text editors that has been opened
 static std::set<std::string> undocked_window;
 static size_t prev_number_docked_window = 0;
 
@@ -70,8 +74,6 @@ static ImageData Folder_image;
 static ImageData Debug_image;
 static ImageData Robot_image;
 static ImageData Search_image;
-static ImageData Settings_image;
-
 static SingleImageData ErroSymbol; 
 
 static ImFont* DefaultFont;     
@@ -79,6 +81,9 @@ static ImFont* CodeEditorFont;
 static ImFont* FileTreeFont;
 static ImFont* StatusBarFont;
 static ImFont* TextFont;   
+
+static ImFont* IMDIFont;
+static ImFont* ICFont;
 //==========================================================================================================================================
 bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
@@ -140,6 +145,17 @@ const char* idecls[] =
     "IDXGISwapChain", "ID3D11RenderTargetView", "ID3D11Texture2D", "class TextEditor" };
 
 //===================================================HELPER FUNCTIONS=========================================================================================================
+
+int GetTextEditorIndex(const std::string txt_editor_path)
+{
+    int index = 0;
+    auto iterator = std::find(Opened_TextEditors.begin(), Opened_TextEditors.end(), txt_editor_path);
+    if(iterator != Opened_TextEditors.end())
+        index = iterator - Opened_TextEditors.begin();
+    else
+        index = -1;
+    return index;
+}
 
 enum DirStatus
 {
@@ -263,4 +279,143 @@ namespace ArmSimPro
                 data.ToExec();
         }
     }
+}
+
+
+void ProjectWizard()
+{
+    ImGui::TextWrapped("This wizard allows you to create new PlatformIO project. In the last case, you need to uncheck \"Use default location\" and specify path to chosen directory");
+        static DirStatus DirCreateStatus = DirStatus_None;
+
+        if(DirCreateStatus == DirStatus_AlreadyExist || DirCreateStatus == DirStatus_FailedToCreate || DirCreateStatus == DirStatus_NameNotSpecified){
+            ImGui::SetCursorPos(ImVec2(185, 110));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(255,0,0,255));
+            ImGui::Text(DirCreateLog[DirCreateStatus]);
+            ImGui::PopStyleColor();
+        }
+        ImGui::SetCursorPos(ImVec2(60, 130));
+        ImGui::Text("Project Name:"); ImGui::SameLine();
+        ImGui::InputText("##Project Name", &Project_Name);
+
+        ImGui::SetCursorPos(ImVec2(97, 180));
+        ImGui::Text("Location:"); ImGui::SameLine();
+
+        std::string Project_FullPath= NewProjectDir.u8string();
+        ImGui::InputText("##Location", &Project_FullPath, ImGuiInputTextFlags_ReadOnly);
+
+        if(ImGui::IsItemClicked() && !UseDefault_Location)
+            ArmSimPro::FileDialog::Instance().Open("SelectProjectDirectory", "Select new project directory", "");
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 10.0f));
+        OpenFileDialog(NewProjectDir, "SelectProjectDirectory");
+        
+        ImGui::PopStyleVar();
+
+        ImGui::Checkbox("Use default Location", &UseDefault_Location);
+        if(UseDefault_Location)
+            NewProjectDir = std::filesystem::path(getenv("USERPROFILE")) / "Documents" / "ArmSimPro Projects";
+
+        ImGui::SetCursorPosY(240);
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        ImGui::Dummy(ImVec2(0, 15));
+        ImGui::SetCursorPosX(500);
+        if(ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Escape)))
+            ImGui::CloseCurrentPopup();
+        
+        ImGui::SameLine();
+        ImGui::Dummy(ImVec2(10, 0)); ImGui::SameLine();
+        if(ImGui::Button("Finish") || ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Enter)))
+        {
+            if(Project_Name.empty())
+                DirCreateStatus = DirStatus_NameNotSpecified;
+
+            if(UseDefault_Location && !Project_Name.empty())
+            {   
+                if((DirCreateStatus = CreatesDefaultProjectDirectory(NewProjectDir, Project_Name.c_str(), &SelectedProjectPath)) == DirStatus_Created)
+                    ImGui::CloseCurrentPopup();
+            }
+            else if(!Project_Name.empty())
+                if((DirCreateStatus = CreateProjectDirectory(NewProjectDir, Project_Name.c_str(), &SelectedProjectPath)) == DirStatus_Created)
+                    ImGui::CloseCurrentPopup();
+        }
+}
+
+bool ButtonWithIconEx(const char* label, const char* icon, const char* definition)
+{   
+
+    ImVec2 pos = ImGui::GetCursorPos();
+    ImGui::SetCursorPosX(64);
+    ImGui::Text(icon);
+    pos.y -= 12;
+    ImGui::SetCursorPos(ImVec2(95.64, pos.y));
+    ImGui::PushFont(TextFont);
+        bool clicked = ImGui::Button(label);
+    ImGui::PopFont();
+
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
+        ImGui::SetItemTooltip(definition);
+    ImGui::PopStyleColor();
+
+    ImGui::Dummy(ImVec2(0, 45));
+    return clicked;
+}
+
+bool ButtonWithIcon(const char* label, const char* icon, const char* definition)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(39, 136, 255, 255));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, bg_col.GetCol());
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  bg_col.GetCol());
+    ImGui::PushStyleColor(ImGuiCol_Button,  bg_col.GetCol());
+        bool clicked = ButtonWithIconEx(label, icon, definition);
+    ImGui::PopStyleColor(4);
+    return clicked;
+}
+
+void WelcomPage()
+{
+    float window_width = ImGui::GetWindowWidth();
+    ImGui::Columns(2, "mycols", false);
+        ImGui::SetCursorPos(ImVec2(60,80));
+        ImGui::PushFont(FileTreeFont);
+            ImGui::Text("Start");
+        ImGui::PopFont();             
+
+        ImGui::SetCursorPosY(140);
+        if(ButtonWithIcon("New Project...", ICON_CI_ADD, "Create new Platform IO project"))
+            ImGui::OpenPopup("Project Wizard");
+
+        bool is_Open;
+        ImGui::PushFont(TextFont);
+        ImGui::SetNextWindowSize(ImVec2(700, 300));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(50.0f, 10.0f));
+        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, bg_col.GetCol());
+        ImGui::PushStyleColor(ImGuiCol_TitleBg, bg_col.GetCol());
+        if(ImGui::BeginPopupModal("Project Wizard", &is_Open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
+        {   
+            ProjectWizard();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar();
+        ImGui::PopFont();
+
+        if(ButtonWithIcon("Open Project...", ICON_CI_FOLDER_OPENED, "Open a project to start working (Ctrl+O)"))
+            ArmSimPro::FileDialog::Instance().Open("SelectProjectDir", "Select project directory", "");
+        
+        ImGui::PushFont(TextFont);
+        OpenFileDialog(SelectedProjectPath, "SelectProjectDir");
+        ImGui::PopFont();
+
+        ButtonWithIcon("New Project...", ICON_CI_GIT_PULL_REQUEST, "Clone a remote repository to a local folder...");
+
+        ImGui::NextColumn();
+
+        ImGui::SetCursorPosY(80);
+        ImGui::PushFont(FileTreeFont);
+            ImGui::Text("Recent");
+        ImGui::PopFont();
+
+
+    ImGui::Columns(1);
 }

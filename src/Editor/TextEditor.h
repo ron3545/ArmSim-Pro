@@ -24,7 +24,6 @@ namespace ArmSimPro
     class TextEditor
     {
     public:
-        bool IsOpen = false;
         enum class PaletteIndex
         {
             Default,
@@ -198,8 +197,8 @@ namespace ArmSimPro
         TextEditor();
         TextEditor(const std::string& full_path, const ImVec4& window_bg_col, bool multiple_editor = true);
         ~TextEditor() {}
-        void Render(bool *show_exit_btn = nullptr, const ImVec2& aSize = ImVec2(), bool aBorder = false, bool noMove = true);
-
+        void Render(const ImVec2& aSize = ImVec2(), bool aBorder = false, bool noMove = true);
+        
         std::string GetFileName() const { return file_name; }
         std::string GetFileExtension() const;
         std::string GetPath() const { return path; }
@@ -228,18 +227,18 @@ namespace ArmSimPro
         int GetTotalLines() const { return (int)mLines.size(); }
         bool IsOverwrite() const { return mOverwrite; }
 
-        bool IsWindowDocked() const { return isWindowDocked; }
-        void SetWindowDocked(bool aValue) { isWindowDocked = aValue; }
-
         void SetReadOnly(bool aValue);
         bool IsReadOnly() const { return mReadOnly; }
+
         bool IsTextChanged() const { return mTextChanged; } 
         bool IsCursorPositionChanged() const { return mCursorPositionChanged; }
         bool IsWindowFocused() const {return isWindowFocused;}
-
+        bool IsWindowVisible() const  { return IsWindowShown; }
+        bool IsWindowOpened() const { return IsWindowOpen; }
         bool IsColorizerEnabled() const { return mColorizerEnabled; }
-        void SetColorizerEnable(bool aValue);
+        bool IsWindowShouldDock() const { return isWindowShouldDock; }
 
+        void SetColorizerEnable(bool aValue);
         Coordinates GetCursorPosition() const { return GetActualCursorCoordinates(); }
         void SetCursorPosition(const Coordinates& aPosition);
 
@@ -384,8 +383,9 @@ namespace ArmSimPro
     private:
         std::string aTitle;
         std::string path, file_name;
+        bool IsWindowShown, IsWindowOpen;
         bool HasMultipleEditor;
-        bool isWindowDocked;
+        bool isWindowShouldDock;
         bool isWindowFocused, isWindowSelected, isChildWindowFocus, ShouldRemoveFocus;
         float mLineSpacing;
         float mLastClick;
