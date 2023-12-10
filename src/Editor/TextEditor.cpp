@@ -59,7 +59,7 @@ namespace  ArmSimPro
         mLines.push_back(Line());
     }
 
-    TextEditor::TextEditor(const std::string& full_path, const ImVec4& window_bg_col, bool multiple_editor)
+    TextEditor::TextEditor(const std::string& full_path,  unsigned int id, const ImVec4& window_bg_col, bool multiple_editor)
         : path(full_path)
         , isWindowShouldDock(true)
         , IsWindowShown(true)
@@ -100,7 +100,7 @@ namespace  ArmSimPro
         if (lastSeparatorPos != std::string::npos) {
             // Extract the substring starting from the position after the separator
             file_name = path.substr(lastSeparatorPos + 1);
-            aTitle = "\t" + file_name + "\t";
+            aTitle = "\t" + file_name + "##" + std::to_string(id) + "\t";
         }
         else{
             aTitle = "\t" + path + "\t";
@@ -1249,10 +1249,10 @@ namespace  ArmSimPro
         mWithinRender = false;
     }
 
-    void TextEditor::Render(const ImVec2& aSize, bool aBorder, bool noMove)
+    bool TextEditor::Render(const ImVec2& aSize, bool aBorder, bool noMove)
     {   
-        if(!isWindowShouldDock)
-            ImGui::SetNextWindowSize(ImVec2(800,300));
+        if(!IsWindowShown)
+            return false;
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 10.0f));
@@ -1261,30 +1261,26 @@ namespace  ArmSimPro
         ImGui::PushStyleColor(ImGuiCol_TitleBgActive, _window_bg_col);
         ImGui::PushStyleColor(ImGuiCol_Tab, _window_bg_col);
         ImGui::PushStyleColor(ImGuiCol_TitleBg, _window_bg_col);
-        
-        IsWindowOpen = ImGui::Begin(aTitle.c_str(), &IsWindowShown, ImGuiWindowFlags_NoMove);
+        IsWindowOpen = ImGui::Begin(aTitle.c_str(), &IsWindowShown); //ImGuiWindowFlags_NoMove
         bool isdocked = false;
         if(IsWindowOpen)
         {
-            //isWindowFocused -> When this window was pressed or has focus, "isWindowFocused" will be set to true even though the window become unfocused
-            // as long as I dont click other window. When other window was clicked it should disable "isWindowFocused" on other window.
-            // if there is multiple window. it is crucial to change the "isWindowFocused" variable on other instance of this class.
-            isWindowSelected = ImGui::IsWindowFocused();
-            if((isWindowSelected || isChildWindowFocus) && IsWindowShown)
-                isWindowFocused = true;
-            else
-                isWindowFocused = false;
+            this->isWindowFocused = (ImGui::IsWindowFocused() || isChildWindowFocus) && IsWindowOpen;
+            if(this->isWindowFocused)
+                ImGui::Text("Focused");
+            else 
+                ImGui::Text("Not Focused");
 
             RenderChild(aSize, aBorder);
 
             // if(ImGui::IsWindowDocked() && IsWindowShown && IsWindowOpen )
             //     isWindowShouldDock = !isWindowShouldDock;
+            ImGui::End();
         }
+        else ImGui::End();
         ImGui::PopStyleColor(4);
-        ImGui::End();
         ImGui::PopStyleVar(3);
-
-        
+        return true;
     }
 
     void TextEditor::SetText(const std::string & aText)

@@ -3,6 +3,8 @@
 #include "imgui/imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 
+#include <unordered_set>
+
 using namespace std;
 
 constexpr wchar_t* SOFTWARE_NAME = L"ArmSim Pro";
@@ -144,7 +146,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     {
         vertical_tool_bar->AppendTool("Explorer", Folder_image, ImplementDirectoryNode);                
         vertical_tool_bar->AppendTool("Search", Search_image, SearchOnCodeEditor);                
-        vertical_tool_bar->AppendTool("Debug", Debug_image, nullptr);                  
+        vertical_tool_bar->AppendTool("Debug", Debug_image, PrintOpenedTextEditor);                  
         vertical_tool_bar->AppendTool("Simulate", Robot_image, nullptr);                    
     }
 
@@ -198,7 +200,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         texture->Release();
     };
 //==================================================================================================================================================================
-
     bool done = false;
     while (!done)
     {
@@ -225,6 +226,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
         { 
+            // Create a project
+            if(!SelectedProjectPath.empty() && project_root_node.FileName.empty() && project_root_node.FullPath.empty()) 
+                project_root_node = CreateDirectryNodeTreeFromPath(SelectedProjectPath);
+
             ImGui::PushFont(DefaultFont);
                 float main_menubar_height;
                 if(ImGui::BeginMainMenuBar())
@@ -337,82 +342,29 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                     size[ImGuiAxis_Y] = viewport->WorkSize.y - (cmd_panel->GetCurretnHeight() + status_bar->GetHeight() + 47);
                 }
 
-                
                 //Creates DockSpace
-                std::thread dock_thread(DockSpace, size, pos);
-                dock_thread.join();
-
+                DockSpace(size, pos);
+            
                 if(Opened_TextEditors.empty() && project_root_node.FileName.empty() && project_root_node.FullPath.empty())
-                {
-                    // Render Welcome Page
-                    ImGuiWindowClass window_class;
-                    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_CentralNode; 
-                    ImGui::SetNextWindowClass(&window_class);
-
-                    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-                    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 0.0f));
-                    ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 0.0f);
-                    ImGui::Begin(WELCOME_PAGE, nullptr, ImGuiWindowFlags_NoMove);
-                    {
-                        WelcomPage();
-                    }
-                    ImGui::End();
-                    ImGui::PopStyleVar(3);
-                }
+                    WelcomPage();
                 
+                // Render Text Editors
                 ImGui::PushFont(CodeEditorFont);
-                if(view_only_editor != nullptr && view_only_editor->IsWindowVisible()){
-                    view_only_editor->Render();
-                    char buffer[255];
-
-                    auto cpos = view_only_editor->GetCursorPosition();
-                    snprintf(buffer, sizeof(buffer), "Ln %d, Col %-6d %6d lines  | %s | %s | %s | %s ", cpos.mLine + 1, cpos.mColumn + 1, view_only_editor->GetTotalLines(),
-                            view_only_editor->IsOverwrite() ? "Ovr" : "Ins",
-                            view_only_editor->CanUndo() ? "*" : " ",
-                            view_only_editor->GetFileExtension().c_str(), 
-                            view_only_editor->GetFileName().c_str()
-                        );
-                    current_editor = std::string(buffer);
-                }
-                
                 if(!Opened_TextEditors.empty())
                 {   
-                    auto it = Opened_TextEditors.begin();
-                    while(it != Opened_TextEditors.end())
-                    {
-                        if(!it->IsWindowVisible())
-                            it = Opened_TextEditors.erase(it);
-                        else
-                        {   
-                            // std::future<void> result = std::async(std::launch::async, [&](){
-                                
-                            // });
+                    //make sure to have no duplicates                    
+                    std::sort(Opened_TextEditors.begin(), Opened_TextEditors.end(), [](const ArmSimPro::TextEditor& e1, const ArmSimPro::TextEditor& e2){
+                        return e1.GetPath() < e2.GetPath();
+                    });
 
-                            it->Render();
-                            if(it->IsWindowFocused()){
-                                char buffer[255];
-                                selected_window_path = it->GetPath(); //determines which window is active or currently selected.
-                                selected_editor_path = it->GetPath();
-                                auto cpos = it->GetCursorPosition();
-
-                                snprintf(buffer, sizeof(buffer), "Ln %d, Col %-6d %6d lines  | %s | %s | %s | %s ", cpos.mLine + 1, cpos.mColumn + 1, it->GetTotalLines(),
-                                        it->IsOverwrite() ? "Ovr" : "Ins",
-                                        it->CanUndo() ? "*" : " ",
-                                        it->GetFileExtension().c_str(), 
-                                        it->GetFileName().c_str()
-                                    );
-                                current_editor = std::string(buffer);
-                            }
-                            ++it;
-                        }
-                    }
+                    auto it = std::unique(Opened_TextEditors.begin(), Opened_TextEditors.end(), [](const ArmSimPro::TextEditor& e1, const ArmSimPro::TextEditor& e2){
+                        return e1.GetPath() == e2.GetPath();
+                    });
+                    Opened_TextEditors.erase(it, Opened_TextEditors.end());
+                    RenderTextEditors();
                 }
                 ImGui::PopFont();
             }
-
-            // Create a project
-            if(!SelectedProjectPath.empty() && project_root_node.FileName.empty() && project_root_node.FullPath.empty()) 
-                project_root_node = CreateDirectryNodeTreeFromPath(SelectedProjectPath);
         }
         ImGui::Render();
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
@@ -447,7 +399,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     SafeDelete<ImFont>(FileTreeFont);
     SafeDelete<ImFont>(StatusBarFont);
     SafeDelete<ImFont>(TextFont);
-    SafeDelete<ArmSimPro::TextEditor>(view_only_editor);
     return 0;
 }
 
@@ -535,11 +486,11 @@ void SetupIdentifiers(ArmSimPro::TextEditor::LanguageDefinition& programming_lan
     programming_lang.mIdentifiers.insert(std::make_pair(std::string(value), id));
 }
 
-static std::set<ImGuiID> selections_storage;
-static ImGuiID selection;
-
 void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 {   
+    static std::set<ImGuiID> selections_storage;
+    static ImGuiID selection;
+    
     ImGuiWindow* window = ImGui::GetCurrentWindow();
 
     ImGuiTreeNodeFlags node_flags = ImGuiTreeNodeFlags_SpanFullWidth;
@@ -602,24 +553,18 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
                     selections_storage.clear();
                 }
 
-                if(ImGui::IsMouseDoubleClicked(0))
+                //if(ImGui::IsMouseDoubleClicked(0))
                 {  
                     auto it = std::find(Opened_TextEditors.begin(), Opened_TextEditors.end(), parentNode.FullPath);
                     if(it == Opened_TextEditors.end())
                     {   
-                        if(selected_view_editor == parentNode.FullPath)
-                        {
-                            show_view_only_editor = false;
-                            SafeDelete<ArmSimPro::TextEditor>(view_only_editor);
-                        }
-                        ArmSimPro::TextEditor editor(parentNode.FullPath, bg_col.GetCol());
+                        static unsigned int id = 0;
+                        ArmSimPro::TextEditor editor(parentNode.FullPath, id,bg_col.GetCol());
                         auto programming_lang = ArmSimPro::TextEditor::LanguageDefinition::CPlusPlus();
-
+                        ++id;
                         for (int i = 0; i < sizeof(ppnames) / sizeof(ppnames[0]); ++i)
-                            //SetupPreprocIdentifiers(programming_lang, ppvalues[i]);
                             std::future<void> PreprocIdentifier = std::async(std::launch::async, SetupPreprocIdentifiers, programming_lang, ppvalues[i]);
                         for (int i = 0; i < sizeof(identifiers) / sizeof(identifiers[0]); ++i)
-                            //SetupIdentifiers(programming_lang, identifiers[i], idecls[i]);
                             std::future<void> Identifiers = std::async(std::launch::async, SetupIdentifiers, programming_lang, identifiers[i], idecls[i]);
                 
                         editor.SetLanguageDefinition(programming_lang);
@@ -636,54 +581,17 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
                             editor.SetText(str);
                         }
 
-                        if(!selected_editor_path.empty() && selected_editor_path != prev_editor_path){
+                        if(!selected_editor_path.empty() && !Opened_TextEditors.empty() && selected_editor_path != prev_editor_path){
                             prev_editor_path = selected_editor_path;
-                            
-                            static std::mutex insert_at_index;
-                            std::future<void> result = std::async(std::launch::async, [&](){
-                                std::lock_guard<std::mutex> lock(insert_at_index);
-                                int index = GetTextEditorIndex(selected_editor_path) + 1;
+                            int index = GetTextEditorIndex(selected_editor_path);
+                            if(index != -1)
                                 Opened_TextEditors.insert(Opened_TextEditors.begin() + index, editor);
-                            });
+                            else 
+                                Opened_TextEditors.push_back(editor);
                         }
-                        if(Opened_TextEditors.empty())
-                            Opened_TextEditors.insert(Opened_TextEditors.begin(), editor);
+                        else if(Opened_TextEditors.empty())
+                            Opened_TextEditors.push_back(editor);
                     }
-                }
-                else
-                {
-                    //single pressed
-                    SafeDelete<ArmSimPro::TextEditor>(view_only_editor); //make sure to free the memory before creating another instance of the class.
-
-                    selected_view_editor = parentNode.FullPath;
-                    show_view_only_editor = true;
-
-                    const std::string file_name = "\t" + parentNode.FileName + "\t";
-                    view_only_editor = new ArmSimPro::TextEditor(file_name.c_str(), bg_col.GetCol());
-
-                    auto programming_lang = ArmSimPro::TextEditor::LanguageDefinition::CPlusPlus();
-
-                    for (int i = 0; i < sizeof(ppnames) / sizeof(ppnames[0]); ++i)
-                        //SetupPreprocIdentifiers(programming_lang, ppvalues[i]);
-                        std::future<void> PreprocIdentifier = std::async(std::launch::async, SetupPreprocIdentifiers, programming_lang, ppvalues[i]);
-                    for (int i = 0; i < sizeof(identifiers) / sizeof(identifiers[0]); ++i)
-                        //SetupIdentifiers(programming_lang, identifiers[i], idecls[i]);
-                        std::future<void> Identifiers = std::async(std::launch::async, SetupIdentifiers, programming_lang, identifiers[i], idecls[i]);
-            
-                    view_only_editor->SetLanguageDefinition(programming_lang);
-
-                    std::ifstream t(parentNode.FullPath.c_str());
-                    if (t.good())
-                    {
-                        std::string str;
-                        t.seekg(0, std::ios::end);
-                            str.reserve(t.tellg());
-                        t.seekg(0, std::ios::beg);
-                        str.assign((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
-
-                        view_only_editor->SetText(str);
-                    }
-                    view_only_editor->SetReadOnly(true);
                 }
             }    
             else if(ImGui::IsItemClicked(ImGuiMouseButton_Right) && !ImGui::IsItemToggledOpen())
@@ -714,8 +622,10 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 	ImGui::PopID();
 }
 
+static std::mutex implement_directory_node;
 void ImplementDirectoryNode()
 {
+    std::lock_guard<std::mutex> lock(implement_directory_node);
     static bool is_Open = true;
     ImGui::Dummy(ImVec2(0.0f, 13.05f));
     ImGui::Dummy(ImVec2(6.0f, 13.05f));
@@ -787,7 +697,10 @@ void DockSpace(const ImVec2& size, const ImVec2& pos)
         ImGuiIO& io = ImGui::GetIO();
         if(io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
         {
-            ImGuiID dockspace_id = ImGui::GetID("MyDockspace");
+            static ImGuiID dockspace_id = 0;
+            if(dockspace_id == 0) 
+                dockspace_id = ImGui::GetID("MyDockspace");
+
             const ImVec2 dockspace_size = ImGui::GetContentRegionAvail();
             if(ShouldShowWelcomePage())
                 ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags | ImGuiDockNodeFlags_NoWindowMenuButton);
@@ -795,35 +708,29 @@ void DockSpace(const ImVec2& size, const ImVec2& pos)
                 ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
 
             static bool first_run = true;
-            if(first_run || Opened_TextEditors.size() != prev_number_docked_window || selected_view_editor != prev_selected_view_editor)
-            {
+            if(ShouldShowWelcomePage() && first_run){
+                first_run = false;
                 ImGui::DockBuilderRemoveNode(dockspace_id); // clear any previous layout
                 ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
                 ImGui::DockBuilderSetNodeSize(dockspace_id, dockspace_size);
 
-                if(ShouldShowWelcomePage()){
-                    ImGui::DockBuilderDockWindow(WELCOME_PAGE, dockspace_id);
-                    first_run = false;
-                }
+                ImGui::DockBuilderDockWindow(WELCOME_PAGE, dockspace_id);
 
-                if(view_only_editor != nullptr)
-                {
-                    prev_selected_view_editor = selected_view_editor;
-                    ImGui::DockBuilderDockWindow(view_only_editor->GetTitle().c_str(), dockspace_id);
-                }
+                ImGui::DockBuilderFinish(dockspace_id);
+            }
+            else if(Opened_TextEditors.size() != prev_number_docked_window && !Opened_TextEditors.empty())
+            {   
+                ImGui::DockBuilderRemoveNode(dockspace_id); // clear any previous layout
+                ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+                ImGui::DockBuilderSetNodeSize(dockspace_id, dockspace_size);
 
-                if(!Opened_TextEditors.empty())
-                {
-                    //Use this part to dock all selected window. Except to those window that are removed to the dock space
-                    prev_number_docked_window = Opened_TextEditors.size();
-                    unsigned int i = 0;
-                    for(auto& window : Opened_TextEditors){
-                        //if(window.IsWindowShouldDock() == false)
-                            //continue;
-                        std::future<void> result = std::async(std::launch::async, [&](){
-                            ImGui::DockBuilderDockWindow(window.GetTitle().c_str(), dockspace_id);
-                        });
-                    }
+                //Use this part to dock all selected window. Except to those window that are removed to the dock space
+                prev_number_docked_window = Opened_TextEditors.size();
+                unsigned int i = 0;
+                for(const auto& window : Opened_TextEditors){
+                    std::future<void> result = std::async(std::launch::async, [&](){
+                        ImGui::DockBuilderDockWindow(window.GetTitle().c_str(), dockspace_id);
+                    });
                 }
                 ImGui::DockBuilderFinish(dockspace_id);
             }

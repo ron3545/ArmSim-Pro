@@ -183,21 +183,18 @@ namespace ArmSimPro
                 : mPreprocChar('#'), mAutoIndentation(true), mTokenize(nullptr), mCaseSensitive(true)
             {
             }
-
             static const LanguageDefinition& CPlusPlus();
             static const LanguageDefinition& C();
         };
-
-        bool operator==(const TextEditor& other) const { return this->path == other.path; }
+        
         bool operator==(const std::string& full_path) const { return this->path == full_path; }
-
         TextEditor& operator=(const TextEditor& editor) { return *this; }
         TextEditor& operator=(TextEditor& editor) { return *this; }
 
         TextEditor();
-        TextEditor(const std::string& full_path, const ImVec4& window_bg_col, bool multiple_editor = true);
+        TextEditor(const std::string& full_path, unsigned int id, const ImVec4& window_bg_col, bool multiple_editor = true);
         ~TextEditor() {}
-        void Render(const ImVec2& aSize = ImVec2(), bool aBorder = false, bool noMove = true);
+        bool Render(const ImVec2& aSize = ImVec2(), bool aBorder = false, bool noMove = true);
         
         std::string GetFileName() const { return file_name; }
         std::string GetFileExtension() const;
@@ -221,22 +218,22 @@ namespace ArmSimPro
         std::string GetSelectedText() const;
         std::string GetCurrentLineText()const;
 
-        float GetReadingDuration() const {return mReadingFileDuration;}
+        float GetReadingDuration() const {return this->mReadingFileDuration;}
 
-        std::string GetTitle() const {return aTitle;}
-        int GetTotalLines() const { return (int)mLines.size(); }
-        bool IsOverwrite() const { return mOverwrite; }
+        std::string GetTitle() const {return this->aTitle;}
+        int GetTotalLines() const { return (int)this->mLines.size(); }
+        bool IsOverwrite() const { return this->mOverwrite; }
 
         void SetReadOnly(bool aValue);
-        bool IsReadOnly() const { return mReadOnly; }
+        bool IsReadOnly() const { return this->mReadOnly; }
 
-        bool IsTextChanged() const { return mTextChanged; } 
-        bool IsCursorPositionChanged() const { return mCursorPositionChanged; }
+        bool IsTextChanged() const { return this->mTextChanged; } 
+        bool IsCursorPositionChanged() const { return this->mCursorPositionChanged; }
         bool IsWindowFocused() const {return isWindowFocused;}
-        bool IsWindowVisible() const  { return IsWindowShown; }
-        bool IsWindowOpened() const { return IsWindowOpen; }
-        bool IsColorizerEnabled() const { return mColorizerEnabled; }
-        bool IsWindowShouldDock() const { return isWindowShouldDock; }
+        bool IsWindowVisible() const  { return this->IsWindowShown; }
+        bool IsWindowOpened() const { return this->IsWindowOpen; }
+        bool IsColorizerEnabled() const { return this->mColorizerEnabled; }
+        bool IsWindowShouldDock() const { return this->isWindowShouldDock; }
 
         void SetColorizerEnable(bool aValue);
         Coordinates GetCursorPosition() const { return GetActualCursorCoordinates(); }
@@ -386,7 +383,7 @@ namespace ArmSimPro
         bool IsWindowShown, IsWindowOpen;
         bool HasMultipleEditor;
         bool isWindowShouldDock;
-        bool isWindowFocused, isWindowSelected, isChildWindowFocus, ShouldRemoveFocus;
+        bool isWindowFocused, isChildWindowFocus, ShouldRemoveFocus;
         float mLineSpacing;
         float mLastClick;
         float mTextStart;  // position (in pixels) where a code line starts relative to the left of the TextEditor.
@@ -430,7 +427,6 @@ namespace ArmSimPro
         std::string mLineBuffer;  //handles the colorized texts being displayed
         uint64_t mStartTime;
         const ImVec4 _window_bg_col;
-
         
     };
 };

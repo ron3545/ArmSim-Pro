@@ -26,6 +26,7 @@
 #include <set>
 #include <algorithm>
 #include <functional>
+#include <iterator>
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui/imgui.h"
@@ -43,21 +44,19 @@
 #include "IconFontHeaders/IconsMaterialDesignIcons.h"
 
 const char* WELCOME_PAGE = "\tWelcome\t";
+
 //=======================================================Variables==========================================================================
 
 static std::filesystem::path SelectedProjectPath; 
 static std::filesystem::path NewProjectDir; 
 
-static ArmSimPro::TextEditor* view_only_editor = nullptr; bool show_view_only_editor = false;
-static std::string selected_view_editor;       //parameter for bypasing dockspace only-once-run protocol 
-static std::string prev_selected_view_editor;  //parameter for bypasing dockspace only-once-run protocol 
-
 static std::string selected_window_path, prev_selected_window_path; // for editing
 static std::string current_editor;
 static std::string selected_editor_path, prev_editor_path;
+static std::string view_only_editor;
 
 typedef std::vector<ArmSimPro::TextEditor> TextEditors;
-static TextEditors Opened_TextEditors;  //Storage for all the instances of text editors that has been opened
+       TextEditors Opened_TextEditors;  //Storage for all the instances of text editors that has been opened
 static std::set<std::string> undocked_window;
 static size_t prev_number_docked_window = 0;
 
@@ -149,9 +148,9 @@ const char* idecls[] =
 int GetTextEditorIndex(const std::string txt_editor_path)
 {
     int index = 0;
-    auto iterator = std::find(Opened_TextEditors.begin(), Opened_TextEditors.end(), txt_editor_path);
-    if(iterator != Opened_TextEditors.end())
-        index = iterator - Opened_TextEditors.begin();
+    auto iterator = std::find(Opened_TextEditors.cbegin(), Opened_TextEditors.cend(), txt_editor_path);
+    if(iterator != Opened_TextEditors.cend())
+        index = static_cast<int>(std::distance(Opened_TextEditors.cbegin(), iterator)) + 1;
     else
         index = -1;
     return index;
@@ -373,49 +372,112 @@ bool ButtonWithIcon(const char* label, const char* icon, const char* definition)
 }
 
 void WelcomPage()
-{
-    float window_width = ImGui::GetWindowWidth();
-    ImGui::Columns(2, "mycols", false);
-        ImGui::SetCursorPos(ImVec2(60,80));
-        ImGui::PushFont(FileTreeFont);
-            ImGui::Text("Start");
-        ImGui::PopFont();             
+{   
+    // Render Welcome Page
+    ImGuiWindowClass window_class;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_CentralNode; 
+    ImGui::SetNextWindowClass(&window_class);
 
-        ImGui::SetCursorPosY(140);
-        if(ButtonWithIcon("New Project...", ICON_CI_ADD, "Create new Platform IO project"))
-            ImGui::OpenPopup("Project Wizard");
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 0.0f);
+    ImGui::Begin(WELCOME_PAGE, nullptr, ImGuiWindowFlags_NoMove);
+    {
+        float window_width = ImGui::GetWindowWidth();
+        ImGui::Columns(2, "mycols", false);
+            ImGui::SetCursorPos(ImVec2(60,80));
+            ImGui::PushFont(FileTreeFont);
+                ImGui::Text("Start");
+            ImGui::PopFont();             
 
-        bool is_Open;
-        ImGui::PushFont(TextFont);
-        ImGui::SetNextWindowSize(ImVec2(700, 300));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(50.0f, 10.0f));
-        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, bg_col.GetCol());
-        ImGui::PushStyleColor(ImGuiCol_TitleBg, bg_col.GetCol());
-        if(ImGui::BeginPopupModal("Project Wizard", &is_Open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
-        {   
-            ProjectWizard();
-            ImGui::EndPopup();
-        }
-        ImGui::PopStyleColor(2);
-        ImGui::PopStyleVar();
-        ImGui::PopFont();
+            ImGui::SetCursorPosY(140);
+            if(ButtonWithIcon("New Project...", ICON_CI_ADD, "Create new Platform IO project"))
+                ImGui::OpenPopup("Project Wizard");
 
-        if(ButtonWithIcon("Open Project...", ICON_CI_FOLDER_OPENED, "Open a project to start working (Ctrl+O)"))
-            ArmSimPro::FileDialog::Instance().Open("SelectProjectDir", "Select project directory", "");
-        
-        ImGui::PushFont(TextFont);
-        OpenFileDialog(SelectedProjectPath, "SelectProjectDir");
-        ImGui::PopFont();
+            bool is_Open;
+            ImGui::PushFont(TextFont);
+            ImGui::SetNextWindowSize(ImVec2(700, 300));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(50.0f, 10.0f));
+            ImGui::PushStyleColor(ImGuiCol_TitleBgActive, bg_col.GetCol());
+            ImGui::PushStyleColor(ImGuiCol_TitleBg, bg_col.GetCol());
+            if(ImGui::BeginPopupModal("Project Wizard", &is_Open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
+            {   
+                ProjectWizard();
+                ImGui::EndPopup();
+            }
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar();
+            ImGui::PopFont();
 
-        ButtonWithIcon("New Project...", ICON_CI_GIT_PULL_REQUEST, "Clone a remote repository to a local folder...");
+            if(ButtonWithIcon("Open Project...", ICON_CI_FOLDER_OPENED, "Open a project to start working (Ctrl+O)"))
+                ArmSimPro::FileDialog::Instance().Open("SelectProjectDir", "Select project directory", "");
+            
+            ImGui::PushFont(TextFont);
+            OpenFileDialog(SelectedProjectPath, "SelectProjectDir");
+            ImGui::PopFont();
 
-        ImGui::NextColumn();
+            ButtonWithIcon("New Project...", ICON_CI_GIT_PULL_REQUEST, "Clone a remote repository to a local folder...");
 
-        ImGui::SetCursorPosY(80);
-        ImGui::PushFont(FileTreeFont);
-            ImGui::Text("Recent");
-        ImGui::PopFont();
+            ImGui::NextColumn();
+
+            ImGui::SetCursorPosY(80);
+            ImGui::PushFont(FileTreeFont);
+                ImGui::Text("Recent");
+            ImGui::PopFont();
 
 
-    ImGui::Columns(1);
+        ImGui::Columns(1);
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(3);
 }
+
+
+void PrintOpenedTextEditor()
+{
+    if(!Opened_TextEditors.empty())
+        for(const auto& editor : Opened_TextEditors)
+        {
+            ImGui::Dummy(ImVec2(20, 50)); ImGui::SameLine();
+            ImGui::TextWrapped(editor.GetPath().c_str()); 
+        }
+}
+
+static void RenderTextEditors()
+{
+    for(auto it = Opened_TextEditors.begin(); it != Opened_TextEditors.end();)
+    {   
+        if(!it->IsWindowVisible()){
+            //before deletion find what was before the window to be deleted and send it to "selected_window_path"  and "selected_editor_path"
+            //auto tmp = it - 1;
+            
+            it = Opened_TextEditors.erase(it);
+            continue;
+        }
+
+        it->Render(); 
+        static std::mutex focused;
+        std::future<void> future = std::async(std::launch::async, [&](const ArmSimPro::TextEditor& editor){
+            std::lock_guard<std::mutex> lock(focused);
+            if(editor.IsWindowFocused()){
+                char buffer[255];
+                selected_window_path = editor.GetPath(); // determines which window is active or currently selected. For writing contents on status bar
+                selected_editor_path = editor.GetPath(); // This is to deterimine which window is focused or currently selected. For determining where to render the next selected window. This is to reduce reordering during rendering.
+                auto cpos = editor.GetCursorPosition();
+
+                snprintf(buffer, sizeof(buffer), "Ln %d, Col %-6d %6d lines  | %s | %s | %s | %s ", cpos.mLine + 1, cpos.mColumn + 1, 
+                        editor.GetTotalLines(),
+                        editor.IsOverwrite() ? "Ovr" : "Ins",
+                        editor.CanUndo() ? "*" : " ",
+                        editor.GetFileExtension().c_str(), 
+                        editor.GetFileName().c_str()
+                    );
+                current_editor = std::string(buffer);
+            }
+        }, *it);
+        ++it;
+    }
+}
+
+
+
