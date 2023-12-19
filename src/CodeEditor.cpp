@@ -5,17 +5,7 @@
 
 #include <unordered_set>
 
-using namespace std;
-
-constexpr wchar_t* SOFTWARE_NAME = L"ArmSim Pro";
-const char* LOGO = "";
-HWND hwnd = NULL;
-//=======================================================================================================================================
-static const char* Consolas_Font        = "../../../Utils/Fonts/Consolas.ttf";
-static const char* DroidSansMono_Font   = "../../../Utils/Fonts/DroidSansMono.ttf";
-static const char* Menlo_Regular_Font   = "../../../Utils/Fonts/Menlo-Regular.ttf";
-static const char* MONACO_Font          = "../../../Utils/Fonts/MONACO.TTF";    
-
+using namespace std;  
 //======================================CLASS DECLARATION================================================================================
 static ArmSimPro::ToolBar* vertical_tool_bar   = nullptr;
 static ArmSimPro::ToolBar* horizontal_tool_bar = nullptr;
@@ -23,6 +13,7 @@ static ArmSimPro::ToolBar* horizontal_tool_bar = nullptr;
 static ArmSimPro::StatusBar* status_bar = nullptr;
 static ArmSimPro::CmdPanel* cmd_panel = nullptr;
 //========================================================================================================================================
+       HWND                     hwnd = NULL;
        ID3D11Device*            g_pd3dDevice = nullptr; //should be non-static. Other translation units will be using this
 static ID3D11DeviceContext*     g_pd3dDeviceContext = nullptr;
 static IDXGISwapChain*          g_pSwapChain = nullptr;
@@ -48,6 +39,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                     hInstance, 
                     nullptr 
                 );
+    // Make the title bar of the window dark mode           
     {
         BOOL USE_DARK_MODE = true;
         BOOL SET_IMMERSIVE_DARK_MODE_SUCCESS = SUCCEEDED(DwmSetWindowAttribute(hwnd, 
@@ -56,6 +48,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                 sizeof(USE_DARK_MODE))
         );
     }
+
     if (!CreateDeviceD3D(hwnd))
     {
         CleanupDeviceD3D();
@@ -72,7 +65,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
-    io.IniFilename = "ArmSimPro_INI";
+    io.IniFilename = NULL;
     //io.DisplaySize = ImVec2(1280, 720) / io.DisplayFramebufferScale;
     io.Fonts->AddFontDefault();
 
@@ -88,12 +81,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
-    bool show_demo_window = true;
-    bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
 //======================================Load Icons/Images/Fonts==========================================================================================================
-    std::future<void> load_icons = std::async(std::launch::async, [&](){
+    static std::mutex icons_lock;
+    auto load_icons = std::async(std::launch::async, [&]()
+    {
+        std::lock_guard<std::mutex> lock(icons_lock);
         IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/ON/Upload.png", &Compile_image.ON_textureID, &Compile_image.width, &Compile_image.height));
         IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/OFF/Upload.png", &Compile_image.OFF_textureID));
 
@@ -112,12 +106,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/ON/Search.png", &Search_image.ON_textureID, &Search_image.width, &Search_image.height));
         IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/OFF/Search.png", &Search_image.OFF_textureID));
 
-        //IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/ON/Settings.png", &Settings_image.ON_textureID, &Settings_image.width, &Settings_image.height));
-        //IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/OFF/Settings.png", &Settings_image.OFF_textureID));
-
         IM_ASSERT(LoadTextureFromFile("../../../Utils/icons/process-error.png", &ErroSymbol.textureID, &ErroSymbol.width, &ErroSymbol.height));
     });
-    load_icons.get();
+    load_icons.wait();
 
     float iconFontSize = 24; 
     static const ImWchar icons_ranges_CI[] = { ICON_MIN_CI, ICON_MAX_CI, 0 };
@@ -127,7 +118,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     icons_config.MergeMode = true; 
     icons_config.GlyphMinAdvanceX = iconFontSize;
 
-    std::future<void> font = std::async(std::launch::async, ([&](){
+    static std::mutex font_lock;
+    auto font = std::async(std::launch::async, ([&]()
+    {
+        std::lock_guard<std::mutex> lock(font_lock);
         ICFont = io.Fonts->AddFontFromFileTTF( FONT_ICON_FILE_NAME_CI, iconFontSize, &icons_config, icons_ranges_CI );
         IMDIFont = io.Fonts->AddFontFromFileTTF( FONT_ICON_FILE_NAME_MDI, iconFontSize, &icons_config, icons_ranges_MDI);
         
@@ -137,16 +131,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         StatusBarFont       = io.Fonts->AddFontFromFileTTF(MONACO_Font       , 11);
         TextFont            = io.Fonts->AddFontFromFileTTF(Menlo_Regular_Font, 18);
     }));
-    font.get();
+    font.wait();
 //================================================================================================================================================================
    
 //==================================Initializations===============================================================================================================
 
     vertical_tool_bar = new ArmSimPro::ToolBar("Vertical", bg_col, 30, ImGuiAxis_Y);
     {
-        vertical_tool_bar->AppendTool("Explorer", Folder_image, ImplementDirectoryNode);                
+        vertical_tool_bar->AppendTool("Explorer", Folder_image, ImplementDirectoryNode, false, true);                
         vertical_tool_bar->AppendTool("Search", Search_image, SearchOnCodeEditor);                
-        vertical_tool_bar->AppendTool("Debug", Debug_image, PrintOpenedTextEditor);                  
+        vertical_tool_bar->AppendTool("Debug", Debug_image, nullptr);                  
         vertical_tool_bar->AppendTool("Simulate", Robot_image, nullptr);                    
     }
 
@@ -199,6 +193,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         ID3D11ShaderResourceView* texture = static_cast<ID3D11ShaderResourceView*>(tex);
         texture->Release();
     };
+
 //==================================================================================================================================================================
     bool done = false;
     while (!done)
@@ -244,7 +239,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                         {} 
                         if (ImGui::MenuItem("\tClose", "CTRL+W")) {}
 
-                        static bool auto_save = false;
                         ImGui::MenuItem("\tAuto Save", "", &auto_save);
                         if (auto_save) {}
 
@@ -269,28 +263,28 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                     if (ImGui::BeginMenu("Edit"))
                     {   
                         static ArmSimPro::TextEditor *focused_editor = nullptr;
-                        if((selected_window_path != prev_selected_window_path) && !Opened_TextEditors.empty() || Opened_TextEditors.size() != prev_number_docked_window){
+                        if((selected_window_path != prev_selected_window_path) && !Opened_TextEditors.empty()){
                             prev_selected_window_path = selected_window_path;
                             auto iterator = std::find(Opened_TextEditors.begin(), Opened_TextEditors.end(), selected_window_path); 
-                            if(iterator != Opened_TextEditors.end())
-                                focused_editor = &(*iterator);
+                            if(iterator != Opened_TextEditors.cend())
+                                focused_editor = &(iterator->editor);
                         }
                         
-                        bool IsWindowShowed = (focused_editor != nullptr)? focused_editor->IsWindowVisible() : false;
+                        bool IsWindowShowed = (focused_editor != nullptr)? true : false;
                         bool NoEditor_Selected = Opened_TextEditors.empty() || (focused_editor != nullptr && IsWindowShowed)? true : false;
                         bool ro = (focused_editor != nullptr && IsWindowShowed)? focused_editor->IsReadOnly() : true;
 
-                    ArmSimPro::MenuItemData menu_item_arr[] = {
-                        ArmSimPro::MenuItemData("\tUndo", "CTRL+Z", nullptr, (!ro && (focused_editor != nullptr && IsWindowShowed)? focused_editor->CanUndo() : false), [&](){focused_editor->Undo();}),
-                        ArmSimPro::MenuItemData("\tRedo", "CTRL+Y", nullptr, (!ro && (focused_editor != nullptr && IsWindowShowed)? focused_editor->CanRedo() : false), [&](){focused_editor->Redo();}),
-                        //, seperator here
-                        ArmSimPro::MenuItemData("\tCut", "CTRL+X", nullptr, (!ro && (focused_editor != nullptr && IsWindowShowed)? focused_editor->HasSelection() : false), [&](){focused_editor->Cut();}),
-                        ArmSimPro::MenuItemData("\tCopy", "CTRL+C", nullptr, (!ro && (focused_editor != nullptr && IsWindowShowed)?  focused_editor->HasSelection() : false), [&](){focused_editor->Copy();}),
-                        ArmSimPro::MenuItemData("\tDelete", "Del", nullptr, (!ro && (focused_editor != nullptr && IsWindowShowed)? focused_editor->HasSelection() : false), [&](){focused_editor->Delete();}),
-                        ArmSimPro::MenuItemData("\tPaste", "Ctrl+V", nullptr, (!ro && ImGui::GetClipboardText() != nullptr), [&](){focused_editor->Paste();}),
-                        //,seperator here
+                        ArmSimPro::MenuItemData menu_item_arr[] = {
+                            ArmSimPro::MenuItemData("\tUndo", "CTRL+Z", nullptr, (!ro && (focused_editor != nullptr && IsWindowShowed)? focused_editor->CanUndo() : false), [&](){focused_editor->Undo();}),
+                            ArmSimPro::MenuItemData("\tRedo", "CTRL+Y", nullptr, (!ro && (focused_editor != nullptr && IsWindowShowed)? focused_editor->CanRedo() : false), [&](){focused_editor->Redo();}),
+                            //, seperator here
+                            ArmSimPro::MenuItemData("\tCut", "CTRL+X", nullptr, (!ro && (focused_editor != nullptr && IsWindowShowed)? focused_editor->HasSelection() : false), [&](){focused_editor->Cut();}),
+                            ArmSimPro::MenuItemData("\tCopy", "CTRL+C", nullptr, (!ro && (focused_editor != nullptr && IsWindowShowed)?  focused_editor->HasSelection() : false), [&](){focused_editor->Copy();}),
+                            ArmSimPro::MenuItemData("\tDelete", "Del", nullptr, (!ro && (focused_editor != nullptr && IsWindowShowed)? focused_editor->HasSelection() : false), [&](){focused_editor->Delete();}),
+                            ArmSimPro::MenuItemData("\tPaste", "Ctrl+V", nullptr, (!ro && ImGui::GetClipboardText() != nullptr), [&](){focused_editor->Paste();}),
+                            //,seperator here
                             ArmSimPro::MenuItemData("\tSelect all", nullptr, nullptr, focused_editor != nullptr && IsWindowShowed, [&](){focused_editor->SetSelection(ArmSimPro::TextEditor::Coordinates(), ArmSimPro::TextEditor::Coordinates(focused_editor->GetTotalLines(), 0));})
-                    };
+                        };
                         
                         for(unsigned int i = 0; i < IM_ARRAYSIZE(menu_item_arr); i++)
                         {
@@ -318,7 +312,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                         static ImVec2 textSize; 
                         if(textSize.x == NULL)
                             textSize = ImGui::CalcTextSize(buffer); //this is a bottleneck function. should prevent it from always calculatin
-                        ImGui::SetCursorPosX(width - (textSize.x - 450));
+                        ImGui::SetCursorPosX(width - (textSize.x - 650));
                         ImGui::Text(current_editor.c_str());
                     }
                 }
@@ -327,44 +321,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                 cmd_panel->SetPanel(100, vertical_tool_bar->GetTotalWidth());
             ImGui::PopFont(); //default font
 
-            //Code Editor dockable panel configuration
-            {
-                ImGuiViewport* viewport = ImGui::GetMainViewport();
-
-                ImVec2 size, pos;
-                {                       
-                    const float menubar_toolbar_total_thickness = horizontal_tool_bar->GetThickness() + (main_menubar_height + 10);
-
-                    pos[ImGuiAxis_X]  = viewport->Pos[ImGuiAxis_X] + vertical_tool_bar->GetTotalWidth() + 20;
-                    pos[ImGuiAxis_Y]  = viewport->Pos[ImGuiAxis_Y] + menubar_toolbar_total_thickness + 8;
-
-                    size[ImGuiAxis_X] = viewport->WorkSize.x - vertical_tool_bar->GetTotalWidth() - 20;
-                    size[ImGuiAxis_Y] = viewport->WorkSize.y - (cmd_panel->GetCurretnHeight() + status_bar->GetHeight() + 47);
-                }
-
-                //Creates DockSpace
-                DockSpace(size, pos);
-            
-                if(Opened_TextEditors.empty() && project_root_node.FileName.empty() && project_root_node.FullPath.empty())
-                    WelcomPage();
-                
-                // Render Text Editors
-                ImGui::PushFont(CodeEditorFont);
-                if(!Opened_TextEditors.empty())
-                {   
-                    //make sure to have no duplicates                    
-                    std::sort(Opened_TextEditors.begin(), Opened_TextEditors.end(), [](const ArmSimPro::TextEditor& e1, const ArmSimPro::TextEditor& e2){
-                        return e1.GetPath() < e2.GetPath();
-                    });
-
-                    auto it = std::unique(Opened_TextEditors.begin(), Opened_TextEditors.end(), [](const ArmSimPro::TextEditor& e1, const ArmSimPro::TextEditor& e2){
-                        return e1.GetPath() == e2.GetPath();
-                    });
-                    Opened_TextEditors.erase(it, Opened_TextEditors.end());
-                    RenderTextEditors();
-                }
-                ImGui::PopFont();
-            }
+            EditorWithoutDockSpace(main_menubar_height);
         }
         ImGui::Render();
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
@@ -451,10 +408,10 @@ void RecursivelyAddDirectoryNodes(DirectoryNode& parentNode, std::filesystem::di
 	std::sort(parentNode.Children.begin(), parentNode.Children.end(), moveDirectoriesToFront);
 }
 
-//static std::mutex dir_tree;
+static std::mutex dir_tree;
 DirectoryNode CreateDirectryNodeTreeFromPath(const std::filesystem::path& rootPath)
 {   
-    //std::lock_guard<std::mutex> lock_dir_tree(dir_tree);
+    std::lock_guard<std::mutex> lock_dir_tree(dir_tree);
     
     DirectoryNode rootNode;
 	rootNode.FullPath = rootPath.u8string();
@@ -466,21 +423,15 @@ DirectoryNode CreateDirectryNodeTreeFromPath(const std::filesystem::path& rootPa
 	return rootNode;
 }
 
-//static std::mutex m_mPreprocIdentifiers;
 void SetupPreprocIdentifiers(ArmSimPro::TextEditor::LanguageDefinition& programming_lang, const char* value)
 {
-    //std::lock_guard<std::mutex> lock_mPreprocIdentifiers(m_mPreprocIdentifiers);
-
     ArmSimPro::TextEditor::Identifier id;
     id.mDeclaration = value;
     programming_lang.mPreprocIdentifiers.insert(std::make_pair(std::string(value), id));
 }
 
-//static std::mutex m_Identifiers;
 void SetupIdentifiers(ArmSimPro::TextEditor::LanguageDefinition& programming_lang, const char* value, const char* idecls)
 {
-    //std::lock_guard<std::mutex> lock_Identifiers(m_Identifiers);
-
     ArmSimPro::TextEditor::Identifier id;
     id.mDeclaration = std::string(idecls);
     programming_lang.mIdentifiers.insert(std::make_pair(std::string(value), id));
@@ -495,14 +446,19 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 
     ImGuiTreeNodeFlags node_flags = ImGuiTreeNodeFlags_SpanFullWidth;
     ImGui::PushID(&parentNode);
-
+    
     switch(parentNode.IsDirectory)
     {
     case true: //Node is directory
         {   
+            if(project_root_node.FileName == parentNode.FileName && project_root_node.FullPath == parentNode.FullPath)
+                node_flags |= ImGuiTreeNodeFlags_DefaultOpen;
+
             ImGui::PushFont(FileTreeFont);
+            bool right_clicked = false;
             if (ImGui::TreeNodeEx(parentNode.FileName.c_str(), node_flags))
             {   
+                right_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Right);
                 for (DirectoryNode& childNode : parentNode.Children)
                     RecursivelyDisplayDirectoryNode(childNode);
                 
@@ -511,21 +467,31 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
             ImGui::PopFont();
 
             ImGui::PushFont(TextFont);
-            if(ImGui::IsItemClicked(ImGuiMouseButton_Right) && (!ImGui::IsItemToggledOpen() || ImGui::IsItemToggledOpen()))
+            if(ImGui::IsItemClicked(ImGuiMouseButton_Right) || right_clicked)
                 ImGui::OpenPopup("Edit Folder");
 
-            if(ImGui::BeginPopup("Edit Folder")) 
+            if(ImGui::BeginPopupContextItem("Edit Folder")) 
             {
-                // s => Seperator
-                const char* popup_items[]   = {"\tNew File...\t", "\tNew Folder...\t", "\tReveal in File Explorer\t", "s", "\tCut\t", "\tCopy\t", "s","\tCopy Relative Path\t", "s", "\tRename...\t", "\tDelete\t"};
-                
+                const ArmSimPro::MenuItemData popup_items[] = {
+                    ArmSimPro::MenuItemData("\tNew File...\t", nullptr, nullptr, true, nullptr),
+                    ArmSimPro::MenuItemData("\tNew Folder...\t", nullptr, nullptr, true, nullptr),
+                    ArmSimPro::MenuItemData("\tReveal in File Explorer\t", nullptr, nullptr, true, nullptr),
+
+                    ArmSimPro::MenuItemData("\tCut\t", nullptr, nullptr, true, nullptr),
+                    ArmSimPro::MenuItemData("\tCopy\t", nullptr, nullptr, true, nullptr),
+                    ArmSimPro::MenuItemData("\tPaste\t", nullptr, nullptr, true, nullptr),
+                    ArmSimPro::MenuItemData("\tCopy Relative Path\t", nullptr, nullptr, true, nullptr),
+
+                    ArmSimPro::MenuItemData("\tRename...\t", nullptr, nullptr, true, nullptr),
+                    ArmSimPro::MenuItemData("\tDelete\t", nullptr, nullptr, true, nullptr)
+                };
                 for(int i = 0; i < IM_ARRAYSIZE(popup_items); i++)
-                {
-                    if(strcmp(popup_items[i], "s") == 0){
+                {  
+                    if(i == 3 || i == 7){
                         ImGui::Separator();
                         continue;
                     }
-                    ImGui::MenuItem(popup_items[i]);
+                    ArmSimPro::MenuItem(popup_items[i], true);
                 }
                 ImGui::EndPopup();
             }
@@ -533,7 +499,7 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
             
         } break;
     
-    case false:
+    case false: //Node is a file
         {   
             node_flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
             ImGuiID pressed_id = window->GetID(parentNode.FullPath.c_str());
@@ -555,17 +521,16 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
 
                 //if(ImGui::IsMouseDoubleClicked(0))
                 {  
-                    auto it = std::find(Opened_TextEditors.begin(), Opened_TextEditors.end(), parentNode.FullPath);
-                    if(it == Opened_TextEditors.end())
+                    auto it = std::find(Opened_TextEditors.cbegin(), Opened_TextEditors.cend(), parentNode.FullPath);
+                    if(it == Opened_TextEditors.cend())
                     {   
-                        static unsigned int id = 0;
-                        ArmSimPro::TextEditor editor(parentNode.FullPath, id,bg_col.GetCol());
+                        ArmSimPro::TextEditor editor(parentNode.FullPath,bg_col.GetCol());
                         auto programming_lang = ArmSimPro::TextEditor::LanguageDefinition::CPlusPlus();
-                        ++id;
+
                         for (int i = 0; i < sizeof(ppnames) / sizeof(ppnames[0]); ++i)
-                            std::future<void> PreprocIdentifier = std::async(std::launch::async, SetupPreprocIdentifiers, programming_lang, ppvalues[i]);
+                            SetupPreprocIdentifiers(programming_lang, ppvalues[i]);
                         for (int i = 0; i < sizeof(identifiers) / sizeof(identifiers[0]); ++i)
-                            std::future<void> Identifiers = std::async(std::launch::async, SetupIdentifiers, programming_lang, identifiers[i], idecls[i]);
+                            SetupIdentifiers(programming_lang, identifiers[i], idecls[i]);
                 
                         editor.SetLanguageDefinition(programming_lang);
 
@@ -581,16 +546,13 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
                             editor.SetText(str);
                         }
 
-                        if(!selected_editor_path.empty() && !Opened_TextEditors.empty() && selected_editor_path != prev_editor_path){
-                            prev_editor_path = selected_editor_path;
-                            int index = GetTextEditorIndex(selected_editor_path);
-                            if(index != -1)
-                                Opened_TextEditors.insert(Opened_TextEditors.begin() + index, editor);
-                            else 
-                                Opened_TextEditors.push_back(editor);
-                        }
-                        else if(Opened_TextEditors.empty())
-                            Opened_TextEditors.push_back(editor);
+                        ArmSimPro::TextEditor::Palette palette = editor.GetPalette();
+                        palette[(int)ArmSimPro::TextEditor::PaletteIndex::Background] = ImGui::ColorConvertFloat4ToU32(child_col.GetCol());
+                        palette[(int)ArmSimPro::TextEditor::PaletteIndex::Number] = ImGui::ColorConvertFloat4ToU32(RGBA(189, 219, 173, 255).GetCol());
+                        editor.SetPalette(palette);
+
+                        Opened_TextEditors.push_back(ArmSimPro::TextEditorState(editor));
+                        selected_window_path = editor.GetPath();
                     }
                 }
             }    
@@ -618,14 +580,11 @@ void RecursivelyDisplayDirectoryNode(DirectoryNode& parentNode)
             ImGui::PopFont();
         } break;
     }
-	
 	ImGui::PopID();
 }
 
-static std::mutex implement_directory_node;
-void ImplementDirectoryNode()
+static void ImplementDirectoryNode()
 {
-    std::lock_guard<std::mutex> lock(implement_directory_node);
     static bool is_Open = true;
     ImGui::Dummy(ImVec2(0.0f, 13.05f));
     ImGui::Dummy(ImVec2(6.0f, 13.05f));
@@ -644,7 +603,6 @@ void ImplementDirectoryNode()
             ArmSimPro::FileDialog::Instance().Open("SelectProject", "Select project directory", "");
         
         OpenFileDialog(SelectedProjectPath, "SelectProject");
-
 //=========================================================================Create New Project============================================================================================================================================================== 
         
         ImGui::SetCursorPosX(posX);
@@ -653,6 +611,7 @@ void ImplementDirectoryNode()
         if(ImGui::Button("Create New Project", ImVec2(width - 30, 0)))
             ImGui::OpenPopup("Project Wizard");
 
+        bool is_Open;
         ImGui::SetNextWindowSize(ImVec2(700, 300));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(50.0f, 10.0f));
         ImGui::PushStyleColor(ImGuiCol_TitleBgActive, bg_col.GetCol());
@@ -664,82 +623,278 @@ void ImplementDirectoryNode()
         }
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
+
         ImGui::PopFont();
     }
 
-//========================================================================================================================================================================
-    //executed once
     if(!project_root_node.FileName.empty() && !project_root_node.FullPath.empty())
         RecursivelyDisplayDirectoryNode(project_root_node);    
 }
-
-void DockSpace(const ImVec2& size, const ImVec2& pos)
+//=====================================================Code Editor Reletad====================================
+void DisplayContents(TextEditors::iterator it)
 {
+    ImGui::PushFont(CodeEditorFont);
+    it->editor.Render();
+    ImGui::PopFont();
+
+    if(it->editor.IsTextChanged())
+        it->IsModified = true;
+
+    if (it->editor.IsChildWindowFocused())
+    {
+        char buffer[255];
+        selected_window_path = it->editor.GetPath();
+        auto cpos = it->editor.GetCursorPosition();
+
+        snprintf(buffer, sizeof(buffer), "Ln %d, Col %-6d %6d lines %s | %s ",
+                    cpos.mLine + 1, cpos.mColumn + 1,
+                    it->editor.GetTotalLines(),
+                    it->editor.GetFileExtension().c_str(),
+                    it->editor.GetFileName().c_str());
+
+        current_editor = std::string(buffer);
+    }
+}
+
+/**
+ * Will return boolean and the file path of the window
+ * true -> window is open
+ * false -> window was closed and saved
+*/
+static std::mutex opened_editor;
+std::tuple<bool, std::string> RenderTextEditorEx(TextEditors::iterator it)
+{
+    std::lock_guard<std::mutex> lock(opened_editor);
+    
+    if(!it->Open && !it->IsModified) 
+        return std::tuple<bool, std::string>(std::make_pair(false, it->editor.GetPath()));
+
+    //automatically save the contents of the window after closing.
+    if(!it->Open && auto_save){
+        it->SaveChanges();
+        return std::tuple<bool, std::string>(std::make_pair(false, it->editor.GetPath()));
+    }
+    else if(!it->Open && it->IsModified && !auto_save){ // Aims to prevent closing without saving. Only available when auto save is deactivated
+        it->Open = true;
+        it->DoQueueClose();
+    }
+
+    ImGuiTabItemFlags tab_flag = (it->IsModified)? ImGuiTabItemFlags_UnsavedDocument : 0 ;
+    if(it->editor.IsChildWindowFocused())
+        tab_flag |= ImGuiTabItemFlags_SetSelected;
+
+    bool visible = ImGui::BeginTabItem(it->editor.GetTitle().c_str(), &it->Open, tab_flag);
+    //Rendering of the Code Editor
+    if (visible)
+    {
+        DisplayContents(it);
+        ImGui::EndTabItem();
+    }
+    return std::tuple<bool, std::string>(std::make_pair(true, it->editor.GetPath()));;
+}
+
+static void RenderTextEditors()
+{;
+    std::vector<std::future<std::tuple<bool, std::string>>> m_futures;
+    std::vector<std::string> ToDelete;
+    // devide each tabs into chunks and start rendering concurently
+    for(auto it = Opened_TextEditors.begin(); it != Opened_TextEditors.end(); ++it)
+        m_futures.push_back(std::async(std::launch::async, RenderTextEditorEx, it));
+    
+    // Use non-blocking approach to monitor task completion.
+    while(!m_futures.empty())
+    {   
+        auto task = m_futures.begin();
+        while(task != m_futures.end())
+        {
+            // check the status of each tasks 
+            std::future_status task_stat = task->wait_for(std::chrono::milliseconds(5));
+            if(task_stat == std::future_status::timeout)
+                ++task; 
+            else
+            {
+                try{
+                    auto result = task->get();
+                    const bool ShouldClose = !std::get<0>(result); //returns false when it's time to close widget
+                    if(ShouldClose)
+                        ToDelete.push_back(std::get<1>(result));
+                }
+                catch(const std::exception& e){
+                    //write a logger class for this to log errors
+                }
+                task = m_futures.erase(task); 
+            }
+        } // end loop
+    }// end loop
+
+    if(!ToDelete.empty())
+    {
+        for(const auto& path : ToDelete)
+        {
+            auto it = std::find(Opened_TextEditors.begin(),  Opened_TextEditors.end(), path);
+            if(it == Opened_TextEditors.end())
+                continue;
+
+            auto index = std::distance(Opened_TextEditors.begin(), it);
+            Opened_TextEditors.erase(Opened_TextEditors.begin() + index);
+        }
+    }
+}
+
+static void EditorWithoutDockSpace(float main_menubar_height)
+{
+    static bool show_welcome = true;
     ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImVec2 size, pos;
+    {                       
+        const float menubar_toolbar_total_thickness = horizontal_tool_bar->GetThickness() + (main_menubar_height + 10);
+
+        pos[ImGuiAxis_X]  = viewport->Pos[ImGuiAxis_X] + vertical_tool_bar->GetTotalWidth() + 20;
+        pos[ImGuiAxis_Y]  = viewport->Pos[ImGuiAxis_Y] + menubar_toolbar_total_thickness + 8;
+
+        size[ImGuiAxis_X] = viewport->WorkSize.x - vertical_tool_bar->GetTotalWidth() - 20;
+        size[ImGuiAxis_Y] = viewport->WorkSize.y - (cmd_panel->GetCurretnHeight() + status_bar->GetHeight() + 47);
+    }
 
     ImGui::SetNextWindowPos(pos);
     ImGui::SetNextWindowSize(size);
     ImGui::SetNextWindowViewport(viewport->ID);
 
     ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
-    window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus; 
-    
-    static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
+    window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse; 
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 10)); //used to change window titlebar height;
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, bg_col.GetCol());
-    ImGui::PushStyleColor(ImGuiCol_TitleBg, bg_col.GetCol());
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, bg_col.GetCol());
     ImGui::Begin("DockSpace", nullptr, window_flags);
-    {    
-        ImGuiIO& io = ImGui::GetIO();
-        if(io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
-        {
-            static ImGuiID dockspace_id = 0;
-            if(dockspace_id == 0) 
-                dockspace_id = ImGui::GetID("MyDockspace");
+    {
+        float width = ImGui::GetWindowWidth() + 10;
+        float height = ImGui::GetWindowHeight();
+        if(ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_Reorderable))
+        {   
+            ImGui::PushStyleColor(ImGuiCol_Tab, bg_col.GetCol());
+            if(Opened_TextEditors.empty() && project_root_node.FileName.empty() && project_root_node.FullPath.empty() || show_welcome)
+            {
+                if(ImGui::BeginTabItem(WELCOME_PAGE, &show_welcome)){
+                    ImGui::PushStyleColor(ImGuiCol_ChildBg, child_col.GetCol());
+                    ImGui::BeginChild(WELCOME_PAGE, ImVec2(width, height), false, ImGuiWindowFlags_NoDecoration);
+                        WelcomPage();
+                    ImGui::EndChild();
+                    ImGui::PopStyleColor();
 
-            const ImVec2 dockspace_size = ImGui::GetContentRegionAvail();
-            if(ShouldShowWelcomePage())
-                ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags | ImGuiDockNodeFlags_NoWindowMenuButton);
-            else
-                ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
-
-            static bool first_run = true;
-            if(ShouldShowWelcomePage() && first_run){
-                first_run = false;
-                ImGui::DockBuilderRemoveNode(dockspace_id); // clear any previous layout
-                ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
-                ImGui::DockBuilderSetNodeSize(dockspace_id, dockspace_size);
-
-                ImGui::DockBuilderDockWindow(WELCOME_PAGE, dockspace_id);
-
-                ImGui::DockBuilderFinish(dockspace_id);
-            }
-            else if(Opened_TextEditors.size() != prev_number_docked_window && !Opened_TextEditors.empty())
-            {   
-                ImGui::DockBuilderRemoveNode(dockspace_id); // clear any previous layout
-                ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
-                ImGui::DockBuilderSetNodeSize(dockspace_id, dockspace_size);
-
-                //Use this part to dock all selected window. Except to those window that are removed to the dock space
-                prev_number_docked_window = Opened_TextEditors.size();
-                unsigned int i = 0;
-                for(const auto& window : Opened_TextEditors){
-                    std::future<void> result = std::async(std::launch::async, [&](){
-                        ImGui::DockBuilderDockWindow(window.GetTitle().c_str(), dockspace_id);
-                    });
+                    ImGui::EndTabItem();
                 }
-                ImGui::DockBuilderFinish(dockspace_id);
+            }
+            ImGui::PopStyleColor();
+
+            if(!Opened_TextEditors.empty())
+            {
+                show_welcome = false;
+                //make sure to have no duplicates      
+                static size_t prev_size = 0;
+                if(Opened_TextEditors.size() != prev_size)
+                {
+                    prev_size = Opened_TextEditors.size();
+                    std::sort(Opened_TextEditors.begin(), Opened_TextEditors.end(), [](const ArmSimPro::TextEditorState& e1, const ArmSimPro::TextEditorState& e2){
+                        return e1.editor.GetPath() < e2.editor.GetPath();
+                    });
+                    auto it = std::unique(Opened_TextEditors.begin(), Opened_TextEditors.end(), [](const ArmSimPro::TextEditorState& e1, const ArmSimPro::TextEditorState& e2){
+                        return e1.editor.GetPath() == e2.editor.GetPath();
+                    });
+                    Opened_TextEditors.erase(it, Opened_TextEditors.end());
+                }
+                RenderTextEditors();
+            }
+            else
+            {
+                current_editor.clear();
+                selected_window_path.clear();
+            }
+            ImGui::EndTabBar();
+        }
+    }
+    ImGui::PopStyleColor();
+    ImGui::End();
+
+    //Update closing Queue
+    static ImVector<ArmSimPro::TextEditorState*> close_queue;
+    if(close_queue.empty())
+    {
+        // Close queue us locked once we started popup
+        for(auto& editor : Opened_TextEditors)
+        {
+            if(editor.WantClose)
+            {
+                editor.WantClose = false;
+                close_queue.push_back(&editor);
             }
         }
     }
-    ImGui::PopStyleColor(2);
-    ImGui::End();
-    ImGui::PopStyleVar(4);
-    
+
+    // Display a confirmation UI
+    if(!close_queue.empty())
+    {
+        size_t close_queue_unsaved_documents = 0;
+        for(size_t n = 0; n < close_queue.Size; n++)
+        {
+            if(close_queue[n]->IsModified)
+                close_queue_unsaved_documents++;
+            
+            if(close_queue_unsaved_documents == 0)
+            {
+                // Close documents when all are unsaved
+                for(int n = 0; n < close_queue.Size; n++)
+                    close_queue[n]->DoForceClose();
+                close_queue.clear();
+            }
+            else
+            {
+                if(!ImGui::IsPopupOpen("ArmSimPro ##Save Work"))
+                    ImGui::OpenPopup("ArmSimPro ##Save Work");
+                
+                // ImGui::SetNextWindowSize(ImVec2(400,200));
+                // ImGui::SetNextWindowPos(ImVec2((ImGui::GetWindowWidth()/2) + 200, (ImGui::GetWindowHeight()/2) + 100));
+                if(ImGui::BeginPopupModal("ArmSimPro ##Save Work", NULL, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse))
+                {
+                    ImGui::Text("Save changes to the following items?");
+                    float item_height = ImGui::GetTextLineHeightWithSpacing();
+                    if(ImGui::BeginChildFrame(ImGui::GetID("Frae"), ImVec2(-FLT_MIN, 6.25f * item_height)))
+                    {
+                        for(int i = 0; i < close_queue.Size; i++)
+                            if(close_queue[i]->IsModified)
+                                ImGui::Text("%s", close_queue[i]->editor.GetTitle().c_str());
+                    }
+                    ImGui::EndChildFrame();
+
+                    ImVec2 button_size(ImGui::GetFontSize() * 7.0f, 0.0f);
+                    if (ImGui::Button("Save", button_size))
+                    {
+                        for(int i = 0; i < close_queue.Size; i++)
+                        {
+                            if(close_queue[i]->IsModified)
+                                close_queue[i]->SaveChanges();
+                            close_queue[i]->DoForceClose();
+                        }
+                        close_queue.clear();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Don't Save", button_size))
+                    {
+                        for(int i = 0; i < close_queue.Size; i++)
+                            close_queue[i]->DoForceClose();
+                        close_queue.clear();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel", button_size))
+                    {
+                        close_queue.clear();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
+                } // End of popup modal
+            }
+        }
+    }
 }
 //================================================================================================================================
 bool CreateDeviceD3D(HWND hWnd)

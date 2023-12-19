@@ -29,10 +29,7 @@
 #include <d3d11.h>
 #include "../ImageHandler/ImageHandler.h"
 
-#define ICON_SIZE (ImGui::GetFont()->FontSize + 3)
-#define GUI_ELEMENT_SIZE (std::max(GImGui->FontSize + 10.f, 24.f))
-#define DEFAULT_ICON_SIZE 32
-#define PI 3.141592f
+
 
 extern ID3D11Device* g_pd3dDevice;
 
@@ -561,7 +558,7 @@ namespace ArmSimPro {
 				m_calledOpenPopup = true;
 			}
 		
-			if (ImGui::BeginPopupModal(m_currentTitle.c_str(), &m_isOpen, ImGuiWindowFlags_NoScrollbar)) {
+			if (ImGui::BeginPopupModal(m_currentTitle.c_str(), &m_isOpen, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollWithMouse)) {
 				m_renderFileDialog();
 				ImGui::EndPopup();
 			}
@@ -1437,6 +1434,7 @@ namespace ArmSimPro {
 		}
 
 		// buttons
+		ImGui::Dummy(ImVec2(0, 6));
 		float ok_cancel_width = GUI_ELEMENT_SIZE * 7;
 		ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ok_cancel_width);
 		if (ImGui::Button(m_type == IFD_DIALOG_SAVE ? "Save" : "Open", ImVec2(ok_cancel_width / 2 - ImGui::GetStyle().ItemSpacing.x, 0.0f)) || ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Enter))) {

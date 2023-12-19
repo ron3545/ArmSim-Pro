@@ -13,8 +13,8 @@
 #include <mutex>
 #include <thread>
 #include <numeric>
-#include <future>
 #include <chrono>
+#include <fstream>
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "../imgui/imgui.h"
@@ -192,10 +192,11 @@ namespace ArmSimPro
         TextEditor& operator=(TextEditor& editor) { return *this; }
 
         TextEditor();
-        TextEditor(const std::string& full_path, unsigned int id, const ImVec4& window_bg_col, bool multiple_editor = true);
+        TextEditor(const std::string& full_path, const ImVec4& window_bg_col);
         ~TextEditor() {}
-        bool Render(const ImVec2& aSize = ImVec2(), bool aBorder = false, bool noMove = true);
-        
+        //bool Render(const ImVec2& aSize = ImVec2(), bool aBorder = false, bool noMove = true);
+        void Render(const ImVec2& aSize = ImVec2(), bool aBorder = false);
+
         std::string GetFileName() const { return file_name; }
         std::string GetFileExtension() const;
         std::string GetPath() const { return path; }
@@ -229,11 +230,8 @@ namespace ArmSimPro
 
         bool IsTextChanged() const { return this->mTextChanged; } 
         bool IsCursorPositionChanged() const { return this->mCursorPositionChanged; }
-        bool IsWindowFocused() const {return isWindowFocused;}
-        bool IsWindowVisible() const  { return this->IsWindowShown; }
-        bool IsWindowOpened() const { return this->IsWindowOpen; }
+        bool IsChildWindowFocused() const  { return isChildWindowFocus; }
         bool IsColorizerEnabled() const { return this->mColorizerEnabled; }
-        bool IsWindowShouldDock() const { return this->isWindowShouldDock; }
 
         void SetColorizerEnable(bool aValue);
         Coordinates GetCursorPosition() const { return GetActualCursorCoordinates(); }
@@ -376,14 +374,11 @@ namespace ArmSimPro
         void HandleKeyboardInputs();
         void HandleMouseInputs();
         void RenderEditor();
-        void RenderChild(const ImVec2& aSize = ImVec2(), bool aBorder = false);
+        
     private:
         std::string aTitle;
         std::string path, file_name;
-        bool IsWindowShown, IsWindowOpen;
-        bool HasMultipleEditor;
-        bool isWindowShouldDock;
-        bool isWindowFocused, isChildWindowFocus, ShouldRemoveFocus;
+        bool isChildWindowFocus;
         float mLineSpacing;
         float mLastClick;
         float mTextStart;  // position (in pixels) where a code line starts relative to the left of the TextEditor.
@@ -427,6 +422,27 @@ namespace ArmSimPro
         std::string mLineBuffer;  //handles the colorized texts being displayed
         uint64_t mStartTime;
         const ImVec4 _window_bg_col;
-        
+    };
+
+    struct TextEditorState
+    {
+        TextEditor editor;
+        bool Open, IsModified, WantClose;
+        TextEditorState(const TextEditor& txt_editor) : editor(txt_editor), Open(true), IsModified(false), WantClose(false) {}
+        void DoQueueClose() {WantClose = true;}
+        void DoForceClose() {Open = false; IsModified = false;}
+        void SaveChanges()
+        {
+            auto TextLines = this->editor.GetTextLines();
+            
+            std::ofstream writer(this->editor.GetPath().c_str(), std::ios::trunc);
+            if(!writer.good())
+                return;
+            
+            for(auto it = TextLines.begin(); it != TextLines.end(); ++it)
+                writer << *it << std::endl;
+            writer.close();
+        }
+        bool operator==(const std::string& path) const { return this->editor.GetPath() == path; }
     };
 };

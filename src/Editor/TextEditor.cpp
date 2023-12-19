@@ -27,10 +27,8 @@ namespace  ArmSimPro
 
     TextEditor::TextEditor()
         : _window_bg_col(ImVec4(0,0,0,1))
-        , isWindowShouldDock(true)
-        , isWindowFocused(true)
-        , IsWindowShown(true)
         , mLineSpacing(1.0f)
+        , isChildWindowFocus(true)
         , mUndoIndex(0)
         , mTabSize(4)
         , mOverwrite(false)
@@ -59,14 +57,10 @@ namespace  ArmSimPro
         mLines.push_back(Line());
     }
 
-    TextEditor::TextEditor(const std::string& full_path,  unsigned int id, const ImVec4& window_bg_col, bool multiple_editor)
+    TextEditor::TextEditor(const std::string& full_path,  const ImVec4& window_bg_col)
         : path(full_path)
-        , isWindowShouldDock(true)
-        , IsWindowShown(true)
-        , HasMultipleEditor(multiple_editor)
-        , isWindowFocused(true)
-        , ShouldRemoveFocus(false)
         , _window_bg_col(window_bg_col)
+        , isChildWindowFocus(true)
         , mLineSpacing(1.0f)
         , mUndoIndex(0)
         , mTabSize(4)
@@ -96,16 +90,18 @@ namespace  ArmSimPro
         mLines.push_back(Line());
 
         //get file name
+        static int i = 0;
         size_t lastSeparatorPos = path.find_last_of("\\/");
         if (lastSeparatorPos != std::string::npos) {
             // Extract the substring starting from the position after the separator
             file_name = path.substr(lastSeparatorPos + 1);
-            aTitle = "\t" + file_name + "##" + std::to_string(id) + "\t";
+            aTitle = "\t" + file_name + "##" + std::to_string(i) + "\t"; 
         }
         else{
             aTitle = "\t" + path + "\t";
             file_name = path;
         }
+        ++i;
     }
 
     std::string TextEditor::GetFileExtension() const
@@ -138,7 +134,8 @@ namespace  ArmSimPro
         mRegexList.clear();
 
         for (auto& r : mLanguageDefinition.mTokenRegexStrings)
-            std::future<void> future = std::async(std::launch::async, &TextEditor::SetRegexList, this, r.first, r.second);
+            SetRegexList(r.first, r.second);
+            //std::future<void> future = std::async(std::launch::async, &TextEditor::SetRegexList, this, );
 
         Colorize();
     }
@@ -776,7 +773,7 @@ namespace  ArmSimPro
         auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
         auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
 
-        if (isWindowFocused)
+        if (isChildWindowFocus)
         {
             if (ImGui::IsWindowHovered())
                 ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
@@ -997,20 +994,20 @@ namespace  ArmSimPro
 
         if (mState.mCursorPosition.mLine == lineNo)
         {
-            static std::mutex cursor;
-            std::future<void> future_res = std::async(std::launch::async, [&](){
-                std::lock_guard<std::mutex> lock(cursor);
+            // static std::mutex cursor;
+            // std::future<void> future_res = std::async(std::launch::async, [&](){
+            //     std::lock_guard<std::mutex> lock(cursor);
 
                 // Highlight the current line (where the cursor is)
                 if (!HasSelection())
                 {
                     auto end = ImVec2(start.x + contentSize.x + scrollX, start.y + mCharAdvance.y);
-                    drawList->AddRectFilled(start, end, mPalette[(int)(isWindowFocused ? PaletteIndex::CurrentLineFill : PaletteIndex::CurrentLineFillInactive)]);
+                    drawList->AddRectFilled(start, end, mPalette[(int)(isChildWindowFocus ? PaletteIndex::CurrentLineFill : PaletteIndex::CurrentLineFillInactive)]);
                     drawList->AddRect(start, end, mPalette[(int)PaletteIndex::CurrentLineEdge], 1.0f);
                 }
 
                 // Render the cursor
-                if (isWindowFocused)
+                if (isChildWindowFocus)
                 {
                     auto timeEnd = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                     auto elapsed = timeEnd - mStartTime;
@@ -1043,7 +1040,7 @@ namespace  ArmSimPro
                             mStartTime = timeEnd;
                     }
                 }
-            });
+            //});
         }
 
         // Render colorized text
@@ -1170,8 +1167,8 @@ namespace  ArmSimPro
 
             while (lineNo <= lineMax)
             {
-                std::future<void> future_result = std::async(std::launch::async, &TextEditor::RenderMainEditor, this, drawList, lineNo, cursorScreenPos, contentSize, &longest, scrollX, spaceSize, buf, 16);
-                //RenderMainEditor(drawList, lineNo, cursorScreenPos, contentSize, &longest, scrollX, spaceSize, buf, 16);
+                //std::future<void> future_result = std::async(std::launch::async, &TextEditor::RenderMainEditor, this, drawList, lineNo, cursorScreenPos, contentSize, &longest, scrollX, spaceSize, buf, 16);
+                RenderMainEditor(drawList, lineNo, cursorScreenPos, contentSize, &longest, scrollX, spaceSize, buf, 16);
                 ++lineNo;
             }
 
@@ -1211,7 +1208,7 @@ namespace  ArmSimPro
         }
     }
 
-    void TextEditor::RenderChild(const ImVec2& aSize, bool aBorder)
+    void TextEditor::Render(const ImVec2& aSize, bool aBorder)
     {   
         mWithinRender = true;
         mTextChanged = false;
@@ -1249,39 +1246,35 @@ namespace  ArmSimPro
         mWithinRender = false;
     }
 
-    bool TextEditor::Render(const ImVec2& aSize, bool aBorder, bool noMove)
-    {   
-        if(!IsWindowShown)
-            return false;
+    // bool TextEditor::Render(const ImVec2& aSize, bool aBorder, bool noMove)
+    // {   
+    //     if(!IsWindowShown)
+    //         return false;
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 10.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 0.0f);
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(mPalette[(int)PaletteIndex::Background]));
-        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, _window_bg_col);
-        ImGui::PushStyleColor(ImGuiCol_Tab, _window_bg_col);
-        ImGui::PushStyleColor(ImGuiCol_TitleBg, _window_bg_col);
-        IsWindowOpen = ImGui::Begin(aTitle.c_str(), &IsWindowShown); //ImGuiWindowFlags_NoMove
-        bool isdocked = false;
-        if(IsWindowOpen)
-        {
-            this->isWindowFocused = (ImGui::IsWindowFocused() || isChildWindowFocus) && IsWindowOpen;
-            if(this->isWindowFocused)
-                ImGui::Text("Focused");
-            else 
-                ImGui::Text("Not Focused");
+    //     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    //     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 10.0f));
+    //     ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 0.0f);
+    //     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(mPalette[(int)PaletteIndex::Background]));
+    //     ImGui::PushStyleColor(ImGuiCol_TitleBgActive, _window_bg_col);
+    //     ImGui::PushStyleColor(ImGuiCol_Tab, _window_bg_col);
+    //     ImGui::PushStyleColor(ImGuiCol_TitleBg, _window_bg_col);
+    //     IsWindowOpen = ImGui::Begin(aTitle.c_str(), &IsWindowShown); //ImGuiWindowFlags_NoMove
+    //     bool isdocked = false;
+    //     if(IsWindowOpen)
+    //     {
+    //         this->isWindowFocused = (ImGui::IsWindowFocused() || isChildWindowFocus) && IsWindowOpen;
 
-            RenderChild(aSize, aBorder);
+    //         RenderChild(aSize, aBorder);
 
-            // if(ImGui::IsWindowDocked() && IsWindowShown && IsWindowOpen )
-            //     isWindowShouldDock = !isWindowShouldDock;
-            ImGui::End();
-        }
-        else ImGui::End();
-        ImGui::PopStyleColor(4);
-        ImGui::PopStyleVar(3);
-        return true;
-    }
+    //         // if(ImGui::IsWindowDocked() && IsWindowShown && IsWindowOpen )
+    //         //     isWindowShouldDock = !isWindowShouldDock;
+    //         ImGui::End();
+    //     }
+    //     else ImGui::End();
+    //     ImGui::PopStyleColor(4);
+    //     ImGui::PopStyleVar(3);
+    //     return true;
+    // }
 
     void TextEditor::SetText(const std::string & aText)
     {   
@@ -1335,8 +1328,8 @@ namespace  ArmSimPro
 
                 mLines[i].reserve(aLine.size());
                 for (size_t j = 0; j < aLine.size(); ++j)
-                    //mLines[i].emplace_back(Glyph(aLine[j], PaletteIndex::Default));
-                    std::future<void> mLine_future = std::async(std::launch::async, SetTextMLines, mLines, i, aLine[j]);
+                    mLines[i].emplace_back(Glyph(aLine[j], PaletteIndex::Default));
+                    //std::future<void> mLine_future = std::async(std::launch::async, SetTextMLines, mLines, i, aLine[j]);
             }
         }
 
@@ -1398,27 +1391,27 @@ namespace  ArmSimPro
                                 }break;
                             default:
                                 {
-                                    static std::mutex line_erase;
-                                    std::future<void> line_erase_future = std::async(std::launch::async, [&](){
-                                        std::lock_guard<std::mutex> lock_line_erase(line_erase);
+                                    // static std::mutex line_erase;
+                                    // std::future<void> line_erase_future = std::async(std::launch::async, [&](){
+                                    //     std::lock_guard<std::mutex> lock_line_erase(line_erase);
                                         for (int j = 0; j < mTabSize && !line.empty() && line.front().mChar == ' '; j++)
                                         {
                                             line.erase(line.begin());
                                             modified = true;
                                         }
-                                    });
+                                    //});
                                 }
                             }
                         }
                     }
                     else
                     {
-                        static std::mutex line_insert;
-                        std::future<void> line_insertfuture = std::async(std::launch::async, [&](){
-                            std::lock_guard<std::mutex> lock_line_insert(line_insert);
+                        //static std::mutex line_insert;
+                        //std::future<void> line_insertfuture = std::async(std::launch::async, [&](){
+                            //std::lock_guard<std::mutex> lock_line_insert(line_insert);
                             line.insert(line.begin(), Glyph('\t', TextEditor::PaletteIndex::Background));
                             modified = true;
-                        });
+                        //});
                     }
                 }
                 
@@ -1475,12 +1468,12 @@ namespace  ArmSimPro
             auto& newLine = mLines[coord.mLine + 1];
 
             if (mLanguageDefinition.mAutoIndentation){
-                static std::mutex line_insert;
-                std::future<void> line_insert_future = std::async(std::launch::async, [&](){
-                    std::lock_guard<std::mutex> lock_line_insert(line_insert);
+                //static std::mutex line_insert;
+                //std::future<void> line_insert_future = std::async(std::launch::async, [&](){
+                    //std::lock_guard<std::mutex> lock_line_insert(line_insert);
                     for (size_t it = 0; it < line.size() && isascii(line[it].mChar) && isblank(line[it].mChar); ++it)
                         newLine.push_back(line[it]);
-                });
+                //});
             }
 
             const size_t whitespaceSize = newLine.size();
@@ -1508,16 +1501,16 @@ namespace  ArmSimPro
                     u.mRemovedStart = mState.mCursorPosition;
                     u.mRemovedEnd = Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex + d));
 
-                    static std::mutex line_erase;
-                    std::future<void> line_insert_future = std::async(std::launch::async, [&](){
-                        std::lock_guard<std::mutex> lock_line_erase(line_erase);
+                    // static std::mutex line_erase;
+                    // std::future<void> line_insert_future = std::async(std::launch::async, [&](){
+                    //     std::lock_guard<std::mutex> lock_line_erase(line_erase);
                         
                         while (d-- > 0 && cindex < (int)line.size())
                         {
                             u.mRemoved += line[cindex].mChar;
                             line.erase(line.begin() + cindex);
                         }
-                    });
+                    //});
                 }
 
                 for (int i = 0; i < 2; i++, ++cindex)
@@ -1543,16 +1536,16 @@ namespace  ArmSimPro
                     u.mRemovedStart = mState.mCursorPosition;
                     u.mRemovedEnd = Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex + d));
 
-                    static std::mutex line_erase;
-                    std::future<void> line_insert_future = std::async(std::launch::async, [&](){
-                        std::lock_guard<std::mutex> lock_line_erase(line_erase);
+                    // static std::mutex line_erase;
+                    // std::future<void> line_insert_future = std::async(std::launch::async, [&](){
+                    //     std::lock_guard<std::mutex> lock_line_erase(line_erase);
                         
                         while (d-- > 0 && cindex < (int)line.size())
                         {
                             u.mRemoved += line[cindex].mChar;
                             line.erase(line.begin() + cindex);
                         }
-                    });
+                    //});
                 }
                 for (int i = 0; i < 2; i++, ++cindex)
                     line.insert(line.begin() + cindex, Glyph(buf[i], PaletteIndex::Default));
@@ -1578,16 +1571,16 @@ namespace  ArmSimPro
                     u.mRemovedStart = mState.mCursorPosition;
                     u.mRemovedEnd = Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex + d));
 
-                    static std::mutex line_erase;
-                    std::future<void> line_insert_future = std::async(std::launch::async, [&](){
-                        std::lock_guard<std::mutex> lock_line_erase(line_erase);
+                    //static std::mutex line_erase;
+                    //std::future<void> line_insert_future = std::async(std::launch::async, [&](){
+                        //std::lock_guard<std::mutex> lock_line_erase(line_erase);
                         
                         while (d-- > 0 && cindex < (int)line.size())
                         {
                             u.mRemoved += line[cindex].mChar;
                             line.erase(line.begin() + cindex);
                         }
-                    });
+                    //});
                 }
                 for (int i = 0; i < 2; i++, ++cindex)
                     line.insert(line.begin() + cindex, Glyph(buf[i], PaletteIndex::Default));
@@ -1613,28 +1606,28 @@ namespace  ArmSimPro
                     u.mRemovedStart = mState.mCursorPosition;
                     u.mRemovedEnd = Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex + d));
 
-                    static std::mutex line_erase;
-                    std::future<void> line_erase_future = std::async(std::launch::async, [&](){
-                        std::lock_guard<std::mutex> lock_line_erase(line_erase);
+                    // static std::mutex line_erase;
+                    // std::future<void> line_erase_future = std::async(std::launch::async, [&](){
+                    //     std::lock_guard<std::mutex> lock_line_erase(line_erase);
                         
                         while (d-- > 0 && cindex < (int)line.size())
                         {
                             u.mRemoved += line[cindex].mChar;
                             line.erase(line.begin() + cindex);
                         }
-                    });
+                    // });
                 }
 
-                static std::mutex line_insert;
-                std::future<void> line_insert_future = std::async(std::launch::async, [&](){
-                    std::lock_guard<std::mutex> lock_line_insert(line_insert);
+                // static std::mutex line_insert;
+                // std::future<void> line_insert_future = std::async(std::launch::async, [&](){
+                //     std::lock_guard<std::mutex> lock_line_insert(line_insert);
                     
                     for (auto p = buf; *p != '\0'; p++, ++cindex)
                         line.insert(line.begin() + cindex, Glyph(*p, PaletteIndex::Default));
                     u.mAdded = buf;
                     
                     SetCursorPosition(Coordinates(coord.mLine, GetCharacterColumn(coord.mLine, cindex)));
-                });
+                //});
             }
             else
                 return;

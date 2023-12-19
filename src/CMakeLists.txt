@@ -5,7 +5,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(imgui)
-#add_subdirectory(Imagehandler)
 add_subdirectory(ToolBar)
 add_subdirectory(StatusBar)
 add_subdirectory(Editor)
