@@ -90,18 +90,16 @@ namespace  ArmSimPro
         mLines.push_back(Line());
 
         //get file name
-        static int i = 0;
         size_t lastSeparatorPos = path.find_last_of("\\/");
         if (lastSeparatorPos != std::string::npos) {
             // Extract the substring starting from the position after the separator
             file_name = path.substr(lastSeparatorPos + 1);
-            aTitle = "\t" + file_name + "##" + std::to_string(i) + "\t"; 
+            aTitle = "\t" + file_name + "\t"; 
         }
         else{
             aTitle = "\t" + path + "\t";
             file_name = path;
         }
-        ++i;
     }
 
     std::string TextEditor::GetFileExtension() const
